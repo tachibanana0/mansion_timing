@@ -1,173 +1,8 @@
 <!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>【実データ版】マンション購入タイミングAI判定アプリ</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-</head>
-<body class="bg-slate-50 font-sans text-slate-800 min-h-screen pb-12">
-
-    <header class="bg-indigo-600 text-white shadow-md py-4 mb-8">
-        <div class="max-w-4xl mx-auto px-4 flex items-center justify-between">
-            <h1 class="text-2xl font-bold"><i class="fas fa-building mr-2"></i>【実データ版】マンション購入判定アプリ</h1>
-        </div>
-    </header>
-
-    <main class="max-w-4xl mx-auto px-4">
-        
-        <section class="bg-white rounded-xl shadow-sm p-6 mb-8 border border-slate-200">
-            <h2 class="text-lg font-bold text-slate-700 mb-4 border-b pb-2">設定・条件入力</h2>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-1">e-Stat APIキー <span class="text-xs text-slate-400">(任意 / 人口データ用)</span></label>
-                    <input type="text" id="apiKey" placeholder="APIキーを入力 (空欄でも国交省APIは動きます)" 
-                           class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                    <p class="text-xs text-slate-500 mt-1">※国交省API (不動産価格) はキー不要で自動取得します</p>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-1">購入検討エリア (都道府県)</label>
-                    <select id="prefecture" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
-                        <!-- JSで動的に追加されます -->
-                    </select>
-                </div>
-            </div>
-
-            <button id="btnAnalyze" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex justify-center items-center">
-                <i class="fas fa-search-location mr-2"></i> 実際のデータで判定する
-            </button>
-        </section>
-
-        <div id="loading" class="hidden text-center py-10">
-            <i class="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i>
-            <p class="text-slate-600 font-bold">国交省APIから取引データを取得中...</p>
-            <p class="text-xs text-slate-400 mt-2">※データ量が多いため数秒かかる場合があります</p>
-        </div>
-
-        <section id="results" class="hidden animate-fade-in-up">
-            
-            <div class="bg-white rounded-xl shadow-sm p-6 mb-8 border-t-4 border-indigo-600 text-center">
-                <h2 class="text-xl font-bold text-slate-700 mb-2">独自の購入推奨スコア</h2>
-                <div class="flex justify-center items-end gap-2 my-4">
-                    <span id="scoreValue" class="text-6xl font-black text-indigo-600">0</span>
-                    <span class="text-2xl font-bold text-slate-500 mb-2">/ 100点</span>
-                </div>
-                <div id="judgementRank" class="inline-block px-6 py-2 rounded-full text-xl font-bold mb-4">
-                    判定ランク: -
-                </div>
-                <p id="judgementText" class="text-slate-600 mt-2 font-medium leading-relaxed max-w-2xl mx-auto"></p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                <!-- 土地価格 (実データ) -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-                    <div class="flex items-center text-slate-500 mb-2">
-                        <i class="fas fa-yen-sign text-emerald-500 text-xl w-8"></i>
-                        <h3 class="font-bold">直近の中古マンション平均価格</h3>
-                    </div>
-                    <p class="text-xs text-slate-400 mb-2">※国交省取引データに基づく平米単価</p>
-                    <div class="text-3xl font-bold text-slate-800 mt-2">
-                        <span id="unitPrice">0</span> <span class="text-lg font-normal text-slate-500">万円 / ㎡</span>
-                    </div>
-                    <div class="text-sm text-slate-500 mt-2 border-t pt-2">
-                        (参考坪単価: 約 <span id="tsuboPrice" class="font-bold text-slate-700">0</span> 万円)
-                    </div>
-                </div>
-
-                <!-- 取引件数 (流動性) -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
-                    <div class="flex items-center text-slate-500 mb-4">
-                        <i class="fas fa-exchange-alt text-rose-500 text-xl w-8"></i>
-                        <h3 class="font-bold">市場の流動性 (直近1四半期の取引件数)</h3>
-                    </div>
-                    <p class="text-xs text-slate-400 mb-2">※取引数が多いほど買い手・売り手が見つかりやすい</p>
-                    <div class="flex justify-between items-end mb-3 mt-4">
-                        <span class="text-4xl font-bold text-slate-800"><span id="tradeCount">0</span> <span class="text-base font-normal text-slate-500">件</span></span>
-                    </div>
-                    <div id="liquidityStatus" class="text-sm font-bold mt-2 px-3 py-1 bg-slate-100 inline-block rounded">
-                        判定中...
-                    </div>
-                </div>
-
-                <!-- 人口推移グラフ -->
-                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200 md:col-span-2">
-                    <div class="flex items-center text-slate-500 mb-4">
-                        <i class="fas fa-users text-blue-500 text-xl w-8"></i>
-                        <h3 class="font-bold">エリア人口推移 (直近5年)</h3>
-                    </div>
-                    <p class="text-xs text-slate-400 mb-2" id="popSourceText">※e-Stat APIまたはシミュレーション</p>
-                    <div class="relative h-64 w-full">
-                        <canvas id="popChart"></canvas>
-                    </div>
-                </div>
-
-            </div>
-        </section>
-    </main>
-
-    <style>
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in-up {
-            animation: fadeInUp 0.5s ease-out forwards;
-        }
-    </style>
+<!-- (HTMLの他の部分は変更なし) -->
 
     <script>
-        const prefectures =[
-            "北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県",
-            "東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県",
-            "滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県",
-            "香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"
-        ];
-        
-        const prefSelect = document.getElementById('prefecture');
-        prefectures.forEach((pref, index) => {
-            const option = document.createElement('option');
-            option.value = String(index + 1).padStart(2, '0'); // 国交省API用に "01"〜"47" にする
-            option.textContent = pref;
-            if(pref === "東京都") option.selected = true;
-            prefSelect.appendChild(option);
-        });
-
-        let chartInstance = null;
-
-        document.getElementById('btnAnalyze').addEventListener('click', async () => {
-            const apiKey = document.getElementById('apiKey').value.trim();
-            const prefCode = document.getElementById('prefecture').value;
-            const prefName = prefectures[parseInt(prefCode) - 1];
-
-            document.getElementById('results').classList.add('hidden');
-            document.getElementById('loading').classList.remove('hidden');
-
-            try {
-                // 1. 国交省APIから不動産取引データを取得 (APIキー不要)
-                const realEstateData = await fetchRealEstateData(prefCode);
-                
-                // 2. e-Stat APIから人口データを取得
-                const popData = await fetchPopulationData(apiKey, prefCode);
-
-                // 3. スコア計算
-                const evaluation = calculateScore(realEstateData, popData);
-
-                // 4. 画面反映
-                renderResults(realEstateData, popData, evaluation, prefName);
-
-            } catch (error) {
-                alert("データの取得中にエラーが発生しました。時間を置いて再度お試しください。\n" + error.message);
-                console.error(error);
-            } finally {
-                document.getElementById('loading').classList.add('hidden');
-                document.getElementById('results').classList.remove('hidden');
-            }
-        });
+        // (JavaScriptの他の部分も変更なし)
 
         // ==========================================
         // 国土交通省 Webland API (APIキー不要)
@@ -175,34 +10,50 @@
         async function fetchRealEstateData(prefCode) {
             // 直近の四半期データを取得 (2024年第3四半期を指定。本来は動的に最新期を指定します)
             const period = "20243"; 
-            // 国交省の不動産取引価格情報提供API
-            const url = `https://www.land.mlit.go.jp/webland/api/TradeListSearch?from=${period}&to=${period}&area=${prefCode}`;
             
+            // ★★★★★ ここからが変更点 ★★★★★
+
+            // 1. 本来のリクエスト先URLを定義
+            const targetUrl = `https://www.land.mlit.go.jp/webland/api/TradeListSearch?from=${period}&to=${period}&area=${prefCode}`;
+
+            // 2. 無料のCORSプロキシサーバーを挟んだURLを生成
+            const url = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+
+            // ★★★★★ ここまでが変更点 ★★★★★
+
             const response = await fetch(url);
             if (!response.ok) throw new Error('国交省APIの通信に失敗しました');
             const json = await response.json();
 
+            // (これ以降の処理は変更なし)
+            
             if (json.status !== "OK") {
-                throw new Error('国交省APIから正常なデータが返却されませんでした');
+                 // corsproxy.io経由の場合、エラー詳細が本体に含まれることがある
+                 if(json.contents) {
+                     const originalJson = JSON.parse(json.contents);
+                     if(originalJson.status !== "OK") {
+                        throw new Error('国交省APIから正常なデータが返却されませんでした');
+                     }
+                     // エラーでなければ、以降の処理のためにデータを差し替える
+                     json.data = originalJson.data;
+                 } else {
+                    throw new Error('国交省APIから正常なデータが返却されませんでした');
+                 }
             }
 
-            // 「中古マンション等」のデータのみ抽出
             const mansions = json.data.filter(item => item.Type === "中古マンション等");
             const tradeCount = mansions.length;
 
             let avgUnitPrice = 0;
             if (tradeCount > 0) {
-                // 平米単価(UnitPrice)が存在するデータの平均を計算
-                const validPrices = mansions.filter(m => m.UnitPrice).map(m => m.UnitPrice);
+                const validPrices = mansions.filter(m => m.UnitPrice).map(m => parseInt(m.UnitPrice, 10)); // 数値に変換
                 if (validPrices.length > 0) {
                     const sum = validPrices.reduce((a, b) => a + b, 0);
                     avgUnitPrice = sum / validPrices.length;
                 }
             }
 
-            // 平米単価を万円単位に変換
             const unitPriceManYen = avgUnitPrice / 10000;
-            // 坪単価に変換 (1平米 = 約0.3025坪 -> 平米単価 × 3.3)
             const tsuboPriceManYen = unitPriceManYen * 3.3;
 
             return {
@@ -212,164 +63,7 @@
             };
         }
 
-        // ==========================================
-        // e-Stat API (人口推移)
-        // ==========================================
-        async function fetchPopulationData(apiKey, prefCode) {
-            let popTrend =[];
-            let isRealData = false;
-
-            if (apiKey) {
-                try {
-                    // e-Statの人口推計(統計表ID: 0003448230 等)を想定したリクエスト
-                    const areaCode = prefCode + '000';
-                    const url = `https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData?appId=${apiKey}&lang=J&statsDataId=0003448230&cdArea=${areaCode}`;
-                    const response = await fetch(url);
-                    const json = await response.json();
-                    
-                    if (json.GET_STATS_DATA && json.GET_STATS_DATA.RESULT.STATUS === 0) {
-                        // 本来はここで json.GET_STATS_DATA.STATISTICAL_DATA.DATA_INF をパースします。
-                        // 今回は実データ取得の枠組みとして、API疎通成功フラグを立てます。
-                        isRealData = true;
-                    }
-                } catch (e) {
-                    console.warn("e-Stat APIのパースに失敗しました。シミュレーションにフォールバックします。");
-                }
-            }
-
-            // APIキーがない、またはパース不能な場合は人口データのみシミュレーション
-            const isUrban =['11', '12', '13', '14', '23', '26', '27'].includes(prefCode);
-            const popBase = isUrban ? 5000000 : 1000000;
-            let currentPop = popBase * (1 + (Math.random() * 0.2 - 0.1));
-            
-            for (let i = 0; i < 5; i++) {
-                popTrend.unshift(Math.floor(currentPop));
-                const changeRate = isUrban ? (Math.random() * 0.01) : (Math.random() * -0.015 - 0.005);
-                currentPop = currentPop / (1 + changeRate);
-            }
-
-            return { popTrend, isRealData };
-        }
-
-        // ==========================================
-        // 新しい判定ロジック (価格 + 流動性 + 人口)
-        // ==========================================
-        function calculateScore(realEstateData, popData) {
-            let score = 50;
-
-            // 1. 市場の流動性 (取引件数) による加点
-            // 四半期で取引件数が多い＝流動性が高く売りやすい
-            if (realEstateData.tradeCount > 1000) score += 20;
-            else if (realEstateData.tradeCount > 300) score += 10;
-            else if (realEstateData.tradeCount < 50) score -= 15; // 流動性リスク
-
-            // 2. 価格の過熱感判定 (坪単価)
-            // ※本来は過去比較ですが、今回は絶対値目安による簡易判定
-            const tsubo = parseFloat(realEstateData.tsuboPriceManYen);
-            if (tsubo > 400) score -= 15; // 超高額帯・高値掴みリスク
-            else if (tsubo > 200 && tsubo <= 400) score += 5; // 人気エリア安定帯
-            else if (tsubo > 0 && tsubo <= 200) score += 15; // 割安・購入しやすい帯域
-
-            // 3. 人口推移による加減点 (需要)
-            const popGrowth = popData.popTrend[4] - popData.popTrend[0];
-            if (popGrowth > 0) score += 15;
-            else if (popGrowth > -popData.popTrend[0]*0.02) score += 0;
-            else score -= 15; 
-
-            score = Math.max(0, Math.min(100, Math.floor(score)));
-
-            let rank, text, colorClass, bgColorClass;
-            if (score >= 80) {
-                rank = "S判定 (今すぐ買うべき!)";
-                text = "現在、取引が活発で流動性が非常に高く、エリアの需要も旺盛です。資産価値が落ちにくい優良タイミングです。";
-                colorClass = "text-emerald-600";
-                bgColorClass = "bg-emerald-100";
-            } else if (score >= 60) {
-                rank = "A判定 (購入の好機)";
-                text = "市場の取引件数も安定しており、価格と需要のバランスが良い状態です。良い物件があれば前向きに購入を進めて良いでしょう。";
-                colorClass = "text-blue-600";
-                bgColorClass = "bg-blue-100";
-            } else if (score >= 40) {
-                rank = "B判定 (慎重に検討)";
-                text = "市場の取引がやや停滞しているか、価格が過熱気味です。資産価値が維持できるか、物件の立地や個別要因を慎重に見極める必要があります。";
-                colorClass = "text-amber-600";
-                bgColorClass = "bg-amber-100";
-            } else {
-                rank = "C判定 (今は見送るべき)";
-                text = "取引件数が少なく流動性リスクが高い、または人口減少による将来の需要低下リスクがあります。今は購入を見送ることをお勧めします。";
-                colorClass = "text-rose-600";
-                bgColorClass = "bg-rose-100";
-            }
-
-            return { score, rank, text, colorClass, bgColorClass };
-        }
-
-        // ==========================================
-        // 画面描画
-        // ==========================================
-        function renderResults(realEstateData, popData, evaluation, prefName) {
-            const scoreEl = document.getElementById('scoreValue');
-            scoreEl.textContent = evaluation.score;
-            scoreEl.className = `text-6xl font-black ${evaluation.colorClass}`;
-
-            const rankEl = document.getElementById('judgementRank');
-            rankEl.textContent = evaluation.rank;
-            rankEl.className = `inline-block px-6 py-2 rounded-full text-xl font-bold mb-4 ${evaluation.bgColorClass} ${evaluation.colorClass}`;
-
-            document.getElementById('judgementText').textContent = evaluation.text;
-
-            // 実データ反映
-            document.getElementById('unitPrice').textContent = realEstateData.unitPriceManYen > 0 ? realEstateData.unitPriceManYen : "データなし";
-            document.getElementById('tsuboPrice').textContent = realEstateData.tsuboPriceManYen > 0 ? realEstateData.tsuboPriceManYen : "-";
-            document.getElementById('tradeCount').textContent = realEstateData.tradeCount.toLocaleString();
-            
-            // 流動性ステータステキスト
-            const liqEl = document.getElementById('liquidityStatus');
-            if(realEstateData.tradeCount > 1000) { liqEl.textContent = "流動性: 非常に高い (売買しやすい)"; liqEl.className = "text-sm font-bold mt-2 px-3 py-1 bg-emerald-100 text-emerald-700 inline-block rounded"; }
-            else if(realEstateData.tradeCount > 300) { liqEl.textContent = "流動性: 安定"; liqEl.className = "text-sm font-bold mt-2 px-3 py-1 bg-blue-100 text-blue-700 inline-block rounded"; }
-            else { liqEl.textContent = "流動性: 低い (売却時に苦労するリスクあり)"; liqEl.className = "text-sm font-bold mt-2 px-3 py-1 bg-rose-100 text-rose-700 inline-block rounded"; }
-
-            document.getElementById('popSourceText').textContent = popData.isRealData ? "※e-Stat API 実データ反映済" : "※APIキー未入力/エラーのため推計シミュレーションを表示";
-
-            renderChart(popData.popTrend, prefName);
-        }
-
-        function renderChart(popTrend, prefName) {
-            const ctx = document.getElementById('popChart').getContext('2d');
-            if (chartInstance) chartInstance.destroy();
-
-            const currentYear = new Date().getFullYear();
-            const labels = Array.from({length: 5}, (_, i) => `${currentYear - 4 + i}年`);
-
-            chartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets:[{
-                        label: `${prefName}の人口推移`,
-                        data: popTrend,
-                        borderColor: 'rgb(79, 70, 229)',
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        borderWidth: 3,
-                        pointBackgroundColor: 'rgb(79, 70, 229)',
-                        pointRadius: 4,
-                        fill: true,
-                        tension: 0.3
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
-                    scales: {
-                        y: {
-                            min: Math.floor(Math.min(...popTrend) * 0.99),
-                            ticks: { callback: function(value) { return (value / 10000).toFixed(0) + '万人'; } }
-                        }
-                    }
-                }
-            });
-        }
+        // (他のJavaScript関数は変更なし)
     </script>
 </body>
 </html>
