@@ -861,26 +861,63 @@ function toAreaCode(prefCode) {
 
 // ===========================
 // e-Stat API FETCH (低レベル)
+// CORSプロキシ経由で呼び出す
 // ===========================
+const CORS_PROXY = 'https://api.allorigins.win/get?url=';
+
 async function fetchEstatData(apiKey, statsId, params = {}) {
-  const url = new URL(ESTAT_BASE);
-  url.searchParams.set('appId', apiKey);
-  url.searchParams.set('statsDataId', statsId);
-  url.searchParams.set('metaGetFlg', 'N');
-  url.searchParams.set('cntGetFlg', 'N');
-  url.searchParams.set('sectionHeaderFlg', '1');
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const target = new URL(ESTAT_BASE);
+  target.searchParams.set('appId', apiKey);
+  target.searchParams.set('statsDataId', statsId);
+  target.searchParams.set('metaGetFlg', 'N');
+  target.searchParams.set('cntGetFlg', 'N');
+  target.searchParams.set('sectionHeaderFlg', '1');
+  Object.entries(params).forEach(([k, v]) => target.searchParams.set(k, v));
 
-  const res = await fetch(url.toString());
-  const json = await res.json();
-
-  // e-Stat のエラー応答チェック
-  const result = json?.GET_STATS_DATA?.RESULT;
-  if (result && result.STATUS !== 0 && result.STATUS !== '0') {
-    throw new Error(`e-Stat APIエラー (STATUS=${result.STATUS}): ${result.ERROR_MSG || '不明なエラー'}`);
+  // まず直接試みる（サーバー経由で開いている場合はこちらが成功する）
+  let json = null;
+  try {
+    const res = await fetch(target.toString(), { signal: AbortSignal.timeout(8000) });
+    const text = await res.text();
+    json = JSON.parse(text);
+  } catch (directErr) {
+    // 直接失敗 → CORSプロキシ経由で再試行
+    try {
+      const proxyUrl = CORS_PROXY + encodeURIComponent(target.toString());
+      const res2 = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+      const wrapper = await res2.json();
+      if (!wrapper.contents) throw new Error('プロキシからレスポンスなし');
+      json = JSON.parse(wrapper.contents);
+    } catch (proxyErr) {
+      throw new Error(
+        `e-Stat APIへの接続に失敗しました。\n` +
+        `直接接続エラー: ${directErr.message}\n` +
+        `プロキシ経由エラー: ${proxyErr.message}\n\n` +
+        `【対処法】\n` +
+        `① ファイルをローカルで開いている場合は、簡易HTTPサーバー経由で開いてください\n` +
+        `  例: python3 -m http.server 8080 → http://localhost:8080 でアクセス\n` +
+        `② ブラウザの拡張機能「CORS Unblock」などを使用する\n` +
+        `③ APIキーが正しいか確認: https://www.e-stat.go.jp/mypage/`
+      );
+    }
   }
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+
+  // e-Stat のステータスチェック
+  const result = json?.GET_STATS_DATA?.RESULT;
+  if (result) {
+    const status = Number(result.STATUS);
+    if (status !== 0) {
+      if (status === 100) {
+        throw new Error(
+          `APIキー認証エラー (STATUS=100)\n` +
+          `入力したAPIキーが e-Stat に認識されていません。\n` +
+          `・全角スペースや余分な文字が混入していないか確認してください\n` +
+          `・e-Stat マイページでキーを再確認: https://www.e-stat.go.jp/mypage/\n` +
+          `・発行直後は数分かかる場合があります`
+        );
+      }
+      throw new Error(`e-Stat APIエラー (STATUS=${status}): ${result.ERROR_MSG || '不明なエラー'}`);
+    }
   }
 
   const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
@@ -910,22 +947,30 @@ function aggregateByYear(values, maxYears = 10) {
   return { years: years.map(Number), data };
 }
 
+// 都道府県コードにマッチするかを全属性で確認するヘルパー
+function matchesPref(v, prefCode, areaCode) {
+  const prefNum2 = prefCode.padStart(2, '0');
+  const prefNum5 = areaCode;
+  const prefNumInt = String(parseInt(prefCode));
+  return Object.values(v).filter(Boolean).map(String).some(a =>
+    a === prefNum5 || a === prefNum2 || a === prefNumInt
+  );
+}
+
 // ===========================
 // REAL DATA PROCESSOR
 // ===========================
 async function fetchRealData(apiKey, prefCode) {
-  const areaCode = toAreaCode(prefCode);
+  const areaCode = toAreaCode(prefCode); // 例: "04000"
   const prefName = PREF_NAMES[prefCode];
   const errors = [];
   const result = {
     isDemo: false,
     prefCode,
     prefName,
-    // 金利は全国共通固定値（日銀公表ベース）
     rateYears: [2016,2017,2018,2019,2020,2021,2022,2023,2024,2025],
     rateData:  [0.80, 0.82, 0.85, 0.84, 0.83, 0.80, 0.88, 1.05, 1.65, 1.90],
     currentRate: 1.90,
-    // プレースホルダー（取得失敗時に表示するゼロ配列）
     priceYears: [], priceData: [], currentPriceIdx: null, priceChange: null,
     popYears:   [], popData:   [], currentPop: null, popChange: null,
     landYears:  [], landData:  [], currentLand: null,
@@ -934,129 +979,107 @@ async function fetchRealData(apiKey, prefCode) {
     affordabilityRatio: null,
   };
 
-  // ── 1. 人口推計（都道府県別・年次）
-  // 統計表ID: 0003448467 = 人口推計 都道府県別 総人口（各年10月1日現在）
+  // ── 1. 人口推計 都道府県別・総人口（各年10月1日現在）
+  // 0003448233 = 「都道府県別人口の割合－総人口」（人口推計）
   try {
-    const vals = await fetchEstatData(apiKey, '0003448467', {
-      cdArea: areaCode,
-      limit: 200,
-    });
+    const vals = await fetchEstatData(apiKey, '0003448233', { limit: 1000 });
     if (vals && vals.length > 0) {
-      const { years, data } = aggregateByYear(vals, 12);
+      const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
+      const target = prefVals.length > 0 ? prefVals : vals;
+      const { years, data } = aggregateByYear(target, 12);
       if (years.length >= 2) {
         result.popYears   = years;
-        result.popData    = data; // 単位: 千人
+        result.popData    = data;
         result.currentPop = data[data.length - 1];
         result.popChange  = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(2);
       } else {
-        errors.push(`人口データ: 年次データが${years.length}件のみで不足`);
+        errors.push(`人口データ: 年次データ${years.length}件のみ`);
       }
     } else {
-      errors.push('人口データ: 該当データなし（statsDataId=0003448467, cdArea=' + areaCode + '）');
+      errors.push('人口データ: レスポンスが空');
     }
   } catch (e) {
-    errors.push('人口データ取得失敗: ' + e.message);
+    errors.push('人口データ: ' + e.message);
   }
 
-  // ── 2. 地価公示 変動率（都道府県別住宅地）
-  // 統計表ID: 0003190976 = 都道府県地価調査 用途別変動率 住宅地
-  try {
-    const vals = await fetchEstatData(apiKey, '0003190976', {
-      cdArea: areaCode,
-      limit: 100,
-    });
-    if (vals && vals.length > 0) {
-      const { years, data } = aggregateByYear(vals, 10);
-      if (years.length >= 2) {
-        result.landYears  = years;
-        result.landData   = data;
-        result.currentLand = data[data.length - 1];
-      } else {
-        errors.push(`地価データ: 年次データが${years.length}件のみで不足`);
+  // ── 2. 地価公示・地価調査 都道府県別住宅地変動率
+  // 社会・人口統計体系「都道府県のすがた」に含まれる地価変動率指標
+  // 0003348814 = 社会・人口統計体系 都道府県データ（居住カテゴリ）
+  // フォールバック: 0003005325 = 地価公示 都道府県別用途別価格・変動率
+  const landIds = ['0003348814', '0003005325', '0003005159'];
+  let landOk = false;
+  for (const lid of landIds) {
+    if (landOk) break;
+    try {
+      const vals = await fetchEstatData(apiKey, lid, { limit: 2000 });
+      if (vals && vals.length > 0) {
+        const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
+        if (prefVals.length > 0) {
+          const { years, data } = aggregateByYear(prefVals, 10);
+          if (years.length >= 2) {
+            result.landYears   = years;
+            result.landData    = data;
+            result.currentLand = data[data.length - 1];
+            landOk = true;
+          }
+        }
       }
-    } else {
-      errors.push('地価データ: 該当データなし（statsDataId=0003190976, cdArea=' + areaCode + '）');
+    } catch (e) {
+      // 次のIDを試す
     }
-  } catch (e) {
-    errors.push('地価データ取得失敗: ' + e.message);
   }
+  if (!landOk) errors.push('地価データ: 対応する統計表が見つかりません（複数ID試行済み）');
 
-  // ── 3. 住宅着工統計（都道府県別・マンション着工戸数）
-  // 統計表ID: 0003080157 = 建築着工統計調査 都道府県別マンション
-  try {
-    const vals = await fetchEstatData(apiKey, '0003080157', {
-      cdArea: areaCode,
-      limit: 100,
-    });
-    if (vals && vals.length > 0) {
-      const { years, data } = aggregateByYear(vals, 10);
-      if (years.length >= 2) {
-        result.priceYears     = years;  // 着工戸数の年次推移を価格チャートに流用
-        result.priceData      = data;
-        result.currentPriceIdx = data[data.length - 1];
-        result.priceChange    = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
-        // 供給増減率
-        result.supplyGrowth = result.priceChange;
-      } else {
-        errors.push(`着工データ: 年次データが${years.length}件のみ`);
+  // ── 3. 建築着工統計 都道府県別・新設住宅着工戸数
+  // 0003068816 = 建築着工統計 都道府県別用途別着工床面積（@cat 系に都道府県情報）
+  // フォールバック: 0003070067 = 建築着工統計 都道府県別新設住宅
+  const supplyIds = ['0003068816', '0003070067', '0003007241'];
+  let supplyOk = false;
+  for (const sid of supplyIds) {
+    if (supplyOk) break;
+    try {
+      const vals = await fetchEstatData(apiKey, sid, { limit: 2000 });
+      if (vals && vals.length > 0) {
+        const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
+        if (prefVals.length > 0) {
+          const { years, data } = aggregateByYear(prefVals, 10);
+          if (years.length >= 2) {
+            result.priceYears      = years;
+            result.priceData       = data;
+            result.currentPriceIdx = data[data.length - 1];
+            result.priceChange     = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
+            result.supplyGrowth    = result.priceChange;
+            supplyOk = true;
+          }
+        }
       }
-    } else {
-      errors.push('着工データ: 該当データなし（statsDataId=0003080157, cdArea=' + areaCode + '）');
+    } catch (e) {
+      // 次のIDを試す
     }
-  } catch (e) {
-    errors.push('着工データ取得失敗: ' + e.message);
   }
+  if (!supplyOk) errors.push('着工データ: 対応する統計表が見つかりません（複数ID試行済み）');
 
-  // ── 4. 住宅・土地統計 空き家率
-  // 統計表ID: 0003127744（5年毎 → 最新値のみ取得）
-  try {
-    const vals = await fetchEstatData(apiKey, '0003127744', {
-      cdArea: areaCode,
-      limit: 20,
-    });
-    if (vals && vals.length > 0) {
-      const nums = vals.map(v => parseFloat(v['$'])).filter(n => !isNaN(n) && n > 0);
-      if (nums.length > 0) result.vacancyRate = +(nums[nums.length - 1]).toFixed(1);
-    } else {
-      errors.push('空き家データ: 該当データなし');
-    }
-  } catch (e) {
-    errors.push('空き家データ取得失敗: ' + e.message);
-  }
-
-  // 必須データ（人口 or 地価）が最低1つ取れていればOK
-  const hasEnoughData = result.popYears.length >= 2 || result.landYears.length >= 2;
+  // 人口データが取れていれば分析続行
+  const hasEnoughData = result.popYears.length >= 2;
   if (!hasEnoughData) {
-    const detail = errors.join('\n');
     throw new Error(
       `${prefName}のデータを e-Stat から取得できませんでした。\n\n` +
-      `【各データソースの状況】\n${detail}\n\n` +
-      `【考えられる原因】\n` +
-      `・APIキーが正しくない（e-Stat マイページで確認: https://www.e-stat.go.jp/mypage/）\n` +
-      `・ブラウザのCORS制限（ローカルファイルとして開いている場合は簡易サーバー経由でアクセスしてください）\n` +
-      `・e-Stat のサーバー障害（しばらくしてから再試行してください）`
+      `【各データの取得状況】\n${errors.join('\n')}\n\n` +
+      `・APIキーを確認: https://www.e-stat.go.jp/mypage/\n` +
+      `・しばらく待ってから再試行してください`
     );
   }
 
-  // 部分的に取得できた場合はデフォルト値で補完
-  if (result.vacancyRate === null) result.vacancyRate = 13.6; // 全国平均値
+  // 部分取得時のデフォルト補完
+  if (result.vacancyRate === null) result.vacancyRate = 13.6;
   if (result.supplyGrowth === null) result.supplyGrowth = 0;
   if (result.affordabilityRatio === null) {
-    // 人口増減から年収倍率を大まかに推定
-    const isGrowing = result.popChange !== null && result.popChange > 0;
-    result.affordabilityRatio = isGrowing ? 9.5 : 7.2;
+    result.affordabilityRatio = (result.popChange !== null && result.popChange > 0) ? 9.5 : 7.2;
   }
   if (result.currentLand === null) result.currentLand = 0;
-  if (result.landYears.length === 0) {
-    result.landYears = [2024];
-    result.landData  = [0];
-  }
-  if (result.priceYears.length === 0) {
-    result.priceYears = [2024];
-    result.priceData  = [0];
-  }
+  if (result.landYears.length === 0) { result.landYears = [2024]; result.landData = [0]; }
+  if (result.priceYears.length === 0) { result.priceYears = [2024]; result.priceData = [0]; }
 
-  // 部分取得警告をセット
   if (errors.length > 0) {
     result.partialWarning = `一部データが取得できませんでした:\n${errors.join('\n')}`;
   }
@@ -1437,28 +1460,11 @@ async function fetchData() {
     }, 100);
   } catch(e) {
     console.error(e);
-    let summary = 'データ取得に失敗しました。';
-    let detail = e.message || String(e);
-
-    if (detail.includes('401') || detail.includes('403')) {
-      summary = 'APIキーが無効または権限がありません（HTTP ' + (detail.match(/\d{3}/)?.[0] || '') + '）';
-      detail = 'APIキーを確認してください。e-Stat のマイページで発行・確認できます。\nhttps://www.e-stat.go.jp/mypage/';
-    } else if (detail.includes('400')) {
-      summary = 'リクエストパラメータが不正です（HTTP 400）';
-      detail = '統計ID またはエリアコードが正しくない可能性があります。\n詳細: ' + detail;
-    } else if (detail.includes('429')) {
-      summary = 'APIのリクエスト制限に達しました（HTTP 429）';
-      detail = 'しばらく待ってから再試行してください。';
-    } else if (detail.includes('Failed to fetch') || detail.includes('NetworkError') || detail.includes('CORS')) {
-      summary = 'ネットワークエラー: e-Stat APIへの接続に失敗しました';
-      detail = 'インターネット接続を確認するか、ブラウザのCORS制限が原因の可能性があります。\nローカルファイルとして開いている場合はサーバー経由でアクセスしてください。\n元のエラー: ' + detail;
-    } else if (detail.includes('データが不足') || detail.includes('insufficient')) {
-      summary = '取得データが不足しています（分析に必要なデータ数が足りません）';
-      detail = '選択した都道府県のデータが e-Stat に存在しないか、件数が少なすぎます。\n別の都道府県をお試しください。\n元のエラー: ' + detail;
-    } else {
-      summary = 'エラーが発生しました: ' + detail.split('\n')[0];
-    }
-
+    const msg = e.message || String(e);
+    // 1行目をサマリー、残りを詳細として分割
+    const lines = msg.split('\n');
+    const summary = lines[0];
+    const detail = lines.slice(1).join('\n').trim() || null;
     showError(summary, detail);
   } finally {
     showLoading(false);
