@@ -187,6 +187,21 @@
 
   .api-note a { color: var(--accent2); }
 
+  /* ERROR DETAIL */
+  .error-detail {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: rgba(200,64,26,0.06);
+    border-left: 3px solid var(--accent);
+    font-size: 11px;
+    color: #a0341a;
+    font-family: 'DM Mono', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    display: none;
+  }
+  .error-detail.visible { display: block; }
+
   /* VERDICT SECTION */
   .verdict-section {
     display: none;
@@ -710,14 +725,16 @@
       <button class="fetch-btn" id="fetchBtn" onclick="fetchData()">分析開始</button>
     </div>
     <p class="api-note">
-      ※ APIキーは <a href="https://www.e-stat.go.jp/api/" target="_blank">e-Stat API</a> から無料取得できます。
-      データは e-Stat（政府統計の総合窓口）から取得します。<br>
-      ※ APIキーが未入力またはデータが取得できない場合は、サンプルデータで表示します。
+      ※ APIキーは <a href="https://www.e-stat.go.jp/api/" target="_blank">e-Stat API（政府統計の総合窓口）</a> から無料取得できます。取得には利用者登録が必要です。<br>
+      ※ APIキーは必須です。未入力の場合や取得エラーの場合はエラー内容を表示します。
     </p>
   </div>
 
   <!-- ERROR -->
-  <div class="error-msg" id="errorMsg"></div>
+  <div class="error-msg" id="errorMsg">
+    <div id="errorMsgText"></div>
+    <div class="error-detail" id="errorDetail"></div>
+  </div>
 
   <!-- VERDICT -->
   <div class="verdict-section animate-in delay-1" id="verdictSection">
@@ -939,49 +956,49 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
 // REAL DATA PROCESSOR
 // ===========================
 async function fetchRealData(apiKey, prefCode) {
-  // 不動産価格指数 (全国のデータを使い、都道府県フィルタ)
+  let values;
   try {
-    const values = await fetchEstatData(apiKey, STATS_IDS.propertyPrice, {
+    values = await fetchEstatData(apiKey, STATS_IDS.propertyPrice, {
       cdArea: prefCode.padStart(2,'0'),
       limit: 100,
     });
-
-    if (values && values.length > 0) {
-      // データ整形 (年ごとに集計)
-      const byYear = {};
-      values.forEach(v => {
-        const t = v['@time'] || '';
-        const year = t.substring(0, 4);
-        if (year && v['$'] && v['$'] !== '-') {
-          if (!byYear[year]) byYear[year] = [];
-          byYear[year].push(parseFloat(v['$']));
-        }
-      });
-
-      const years = Object.keys(byYear).sort().slice(-10);
-      const data = years.map(y => {
-        const arr = byYear[y];
-        return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length * 10) / 10;
-      });
-
-      if (years.length > 2) {
-        const sample = generateSampleData(prefCode);
-        sample.isDemo = false;
-        sample.priceYears = years.map(Number);
-        sample.priceData = data;
-        sample.currentPriceIdx = data[data.length-1];
-        sample.priceChange = +((data[data.length-1]/data[data.length-2]-1)*100).toFixed(1);
-        return sample;
-      }
-    }
   } catch(e) {
-    console.warn('e-Stat price fetch failed:', e);
+    throw new Error('e-Stat API リクエスト失敗: ' + e.message);
   }
 
-  // フォールバック
-  const sample = generateSampleData(prefCode);
-  sample.isDemo = true;
-  return sample;
+  if (!values || values.length === 0) {
+    throw new Error(`データが見つかりません。都道府県コード ${prefCode}（${PREF_NAMES[prefCode]}）に対応するデータが e-Stat に存在しないか、APIキーに問題があります。`);
+  }
+
+  // データ整形 (年ごとに集計)
+  const byYear = {};
+  values.forEach(v => {
+    const t = v['@time'] || '';
+    const year = t.substring(0, 4);
+    if (year && v['$'] && v['$'] !== '-') {
+      if (!byYear[year]) byYear[year] = [];
+      byYear[year].push(parseFloat(v['$']));
+    }
+  });
+
+  const years = Object.keys(byYear).sort().slice(-10);
+  if (years.length < 3) {
+    throw new Error(`データが不足しています（取得件数: ${years.length}年分）。この都道府県では分析に必要なデータが揃っていません。`);
+  }
+
+  const data_arr = years.map(y => {
+    const arr = byYear[y];
+    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length * 10) / 10;
+  });
+
+  // 他の指標はサンプル補完（APIに対応データなし）
+  const base = generateSampleData(prefCode);
+  base.isDemo = false;
+  base.priceYears = years.map(Number);
+  base.priceData = data_arr;
+  base.currentPriceIdx = data_arr[data_arr.length-1];
+  base.priceChange = +((data_arr[data_arr.length-1]/data_arr[data_arr.length-2]-1)*100).toFixed(1);
+  return base;
 }
 
 // ===========================
@@ -1329,32 +1346,51 @@ async function fetchData() {
     return;
   }
 
+  if (!apiKey) {
+    showError('e-Stat API キーを入力してください。', 'APIキーは https://www.e-stat.go.jp/api/ から無料取得できます。');
+    return;
+  }
+
   hideError();
   showLoading(true);
   document.getElementById('fetchBtn').disabled = true;
 
+  // 結果エリアを非表示にリセット
+  ['verdictSection','chartsSection','contextSection','strategySection'].forEach(id => {
+    document.getElementById(id).classList.remove('visible');
+  });
+
   try {
-    let data;
-    if (apiKey) {
-      data = await fetchRealData(apiKey, prefCode);
-    } else {
-      // デモモード
-      await new Promise(r => setTimeout(r, 800)); // フェイクローディング
-      data = generateSampleData(prefCode);
-    }
-
+    const data = await fetchRealData(apiKey, prefCode);
     renderAll(data);
-
-    // スクロール
     setTimeout(() => {
       document.getElementById('verdictSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
-
   } catch(e) {
     console.error(e);
-    showError(`データ取得エラー: ${e.message}。サンプルデータで表示します。`);
-    const data = generateSampleData(prefCode);
-    renderAll(data);
+    let summary = 'データ取得に失敗しました。';
+    let detail = e.message || String(e);
+
+    if (detail.includes('401') || detail.includes('403')) {
+      summary = 'APIキーが無効または権限がありません（HTTP ' + (detail.match(/\d{3}/)?.[0] || '') + '）';
+      detail = 'APIキーを確認してください。e-Stat のマイページで発行・確認できます。\nhttps://www.e-stat.go.jp/mypage/';
+    } else if (detail.includes('400')) {
+      summary = 'リクエストパラメータが不正です（HTTP 400）';
+      detail = '統計ID またはエリアコードが正しくない可能性があります。\n詳細: ' + detail;
+    } else if (detail.includes('429')) {
+      summary = 'APIのリクエスト制限に達しました（HTTP 429）';
+      detail = 'しばらく待ってから再試行してください。';
+    } else if (detail.includes('Failed to fetch') || detail.includes('NetworkError') || detail.includes('CORS')) {
+      summary = 'ネットワークエラー: e-Stat APIへの接続に失敗しました';
+      detail = 'インターネット接続を確認するか、ブラウザのCORS制限が原因の可能性があります。\nローカルファイルとして開いている場合はサーバー経由でアクセスしてください。\n元のエラー: ' + detail;
+    } else if (detail.includes('データが不足') || detail.includes('insufficient')) {
+      summary = '取得データが不足しています（分析に必要なデータ数が足りません）';
+      detail = '選択した都道府県のデータが e-Stat に存在しないか、件数が少なすぎます。\n別の都道府県をお試しください。\n元のエラー: ' + detail;
+    } else {
+      summary = 'エラーが発生しました: ' + detail.split('\n')[0];
+    }
+
+    showError(summary, detail);
   } finally {
     showLoading(false);
     document.getElementById('fetchBtn').disabled = false;
@@ -1365,14 +1401,23 @@ function showLoading(b) {
   document.getElementById('loadingOverlay').classList.toggle('active', b);
 }
 
-function showError(msg) {
+function showError(msg, detail) {
   const el = document.getElementById('errorMsg');
-  el.textContent = msg;
+  document.getElementById('errorMsgText').textContent = '⚠ ' + msg;
+  const detailEl = document.getElementById('errorDetail');
+  if (detail) {
+    detailEl.textContent = detail;
+    detailEl.classList.add('visible');
+  } else {
+    detailEl.textContent = '';
+    detailEl.classList.remove('visible');
+  }
   el.classList.add('visible');
 }
 
 function hideError() {
   document.getElementById('errorMsg').classList.remove('visible');
+  document.getElementById('errorDetail').classList.remove('visible');
 }
 
 // Enter key support
