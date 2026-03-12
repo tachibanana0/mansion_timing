@@ -771,7 +771,7 @@
     </div>
     <div class="charts-grid">
       <div class="chart-card">
-        <h3>不動産価格指数（マンション等）</h3>
+        <h3>マンション着工戸数推移（都道府県別）</h3>
         <div class="chart-wrap">
           <canvas id="priceChart"></canvas>
         </div>
@@ -840,16 +840,6 @@ function destroyCharts() {
 // ===========================
 const ESTAT_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
 
-// Stats IDs
-const STATS_IDS = {
-  // 不動産価格指数 - 国土交通省
-  propertyPrice: '0003070975',
-  // 人口推計
-  population: '0003448467',
-  // 地価調査
-  landPrice: '0003000012',
-};
-
 // 都道府県コードマップ
 const PREF_NAMES = {
   '01':'北海道','02':'青森県','03':'岩手県','04':'宮城県','05':'秋田県',
@@ -864,74 +854,13 @@ const PREF_NAMES = {
   '46':'鹿児島県','47':'沖縄県'
 };
 
-// ===========================
-// SAMPLE DATA (フォールバック)
-// ===========================
-function generateSampleData(prefCode) {
-  const popBase = {
-    '13': 14000000, '27': 8800000, '14': 9200000, '23': 7500000,
-    '11': 7300000, '40': 5100000, '01': 5200000,
-  };
-  const pop = popBase[prefCode] || 1000000 + Math.random() * 2000000;
-
-  // 不動産価格指数（2010=100ベース）
-  const priceYears = [2015,2016,2017,2018,2019,2020,2021,2022,2023,2024];
-  const isTokyo = prefCode === '13';
-  const basePrice = isTokyo ? 100 : 92;
-  const priceData = priceYears.map((y, i) => {
-    const growth = isTokyo ? 1.06 : 1.03;
-    return Math.round(basePrice * Math.pow(growth, i) + (Math.random()-0.5)*3);
-  });
-
-  // 人口（千人）
-  const popYears = [2015,2016,2017,2018,2019,2020,2021,2022,2023];
-  const isGrowing = ['13','14','11','23','40'].includes(prefCode);
-  const popData = popYears.map((y, i) => {
-    const chg = isGrowing ? 0.003 : -0.008;
-    return Math.round((pop / 1000) * Math.pow(1 + chg, i - 4));
-  });
-
-  // 地価変動率
-  const landYears = [2016,2017,2018,2019,2020,2021,2022,2023,2024];
-  const landBase = isTokyo ? 3.5 : (isGrowing ? 1.2 : -0.5);
-  const landData = landYears.map((_, i) => {
-    const noise = (Math.random()-0.5)*1.5;
-    if (i === 4) return landBase - 2.0; // コロナ
-    return +(landBase + noise + (i > 4 ? 0.3 * (i-4) : 0)).toFixed(2);
-  });
-
-  // 金利データ（全国共通・日銀ベース）
-  const rateYears = [2016,2017,2018,2019,2020,2021,2022,2023,2024];
-  const rateData = [0.80, 0.82, 0.85, 0.84, 0.83, 0.80, 0.88, 1.05, 1.65];
-
-  // 現在値
-  const currentPriceIdx = priceData[priceData.length-1];
-  const prevPriceIdx = priceData[priceData.length-2];
-  const priceChange = +((currentPriceIdx/prevPriceIdx-1)*100).toFixed(1);
-
-  const currentPop = popData[popData.length-1];
-  const prevPop = popData[popData.length-2];
-  const popChange = +((currentPop/prevPop-1)*100).toFixed(2);
-
-  const currentLand = landData[landData.length-1];
-  const currentRate = rateData[rateData.length-1];
-
-  return {
-    isDemo: true,
-    prefCode,
-    prefName: PREF_NAMES[prefCode],
-    priceYears, priceData, currentPriceIdx, priceChange,
-    popYears, popData, currentPop, popChange,
-    landYears, landData, currentLand,
-    rateYears, rateData, currentRate,
-    supplyGrowth: +(Math.random()*8-1).toFixed(1),
-    vacancyRate: +(10 + Math.random()*15).toFixed(1),
-    affordabilityRatio: +(5 + Math.random()*8).toFixed(1),
-  };
+// e-Statのエリアコードは5桁 (都道府県: XX000)
+function toAreaCode(prefCode) {
+  return prefCode.padStart(2, '0') + '000';
 }
 
 // ===========================
-// e-Stat API FETCH
+// e-Stat API FETCH (低レベル)
 // ===========================
 async function fetchEstatData(apiKey, statsId, params = {}) {
   const url = new URL(ESTAT_BASE);
@@ -940,66 +869,201 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
   url.searchParams.set('metaGetFlg', 'N');
   url.searchParams.set('cntGetFlg', 'N');
   url.searchParams.set('sectionHeaderFlg', '1');
-  Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
 
   const res = await fetch(url.toString());
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
 
-  if (json.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE) {
-    return json.GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE;
+  // e-Stat のエラー応答チェック
+  const result = json?.GET_STATS_DATA?.RESULT;
+  if (result && result.STATUS !== 0 && result.STATUS !== '0') {
+    throw new Error(`e-Stat APIエラー (STATUS=${result.STATUS}): ${result.ERROR_MSG || '不明なエラー'}`);
   }
-  return null;
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  }
+
+  const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
+  return values || null;
+}
+
+// 年次データを集計するヘルパー
+function aggregateByYear(values, maxYears = 10) {
+  const byYear = {};
+  values.forEach(v => {
+    const t = v['@time'] || v['@TIME'] || '';
+    const year = t.substring(0, 4);
+    const val = v['$'];
+    if (year && val && val !== '-' && val !== '***' && val !== '…') {
+      const num = parseFloat(val);
+      if (!isNaN(num)) {
+        if (!byYear[year]) byYear[year] = [];
+        byYear[year].push(num);
+      }
+    }
+  });
+  const years = Object.keys(byYear).sort().slice(-maxYears);
+  const data = years.map(y => {
+    const arr = byYear[y];
+    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10;
+  });
+  return { years: years.map(Number), data };
 }
 
 // ===========================
 // REAL DATA PROCESSOR
 // ===========================
 async function fetchRealData(apiKey, prefCode) {
-  let values;
+  const areaCode = toAreaCode(prefCode);
+  const prefName = PREF_NAMES[prefCode];
+  const errors = [];
+  const result = {
+    isDemo: false,
+    prefCode,
+    prefName,
+    // 金利は全国共通固定値（日銀公表ベース）
+    rateYears: [2016,2017,2018,2019,2020,2021,2022,2023,2024,2025],
+    rateData:  [0.80, 0.82, 0.85, 0.84, 0.83, 0.80, 0.88, 1.05, 1.65, 1.90],
+    currentRate: 1.90,
+    // プレースホルダー（取得失敗時に表示するゼロ配列）
+    priceYears: [], priceData: [], currentPriceIdx: null, priceChange: null,
+    popYears:   [], popData:   [], currentPop: null, popChange: null,
+    landYears:  [], landData:  [], currentLand: null,
+    vacancyRate: null,
+    supplyGrowth: null,
+    affordabilityRatio: null,
+  };
+
+  // ── 1. 人口推計（都道府県別・年次）
+  // 統計表ID: 0003448467 = 人口推計 都道府県別 総人口（各年10月1日現在）
   try {
-    values = await fetchEstatData(apiKey, STATS_IDS.propertyPrice, {
-      cdArea: prefCode.padStart(2,'0'),
+    const vals = await fetchEstatData(apiKey, '0003448467', {
+      cdArea: areaCode,
+      limit: 200,
+    });
+    if (vals && vals.length > 0) {
+      const { years, data } = aggregateByYear(vals, 12);
+      if (years.length >= 2) {
+        result.popYears   = years;
+        result.popData    = data; // 単位: 千人
+        result.currentPop = data[data.length - 1];
+        result.popChange  = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(2);
+      } else {
+        errors.push(`人口データ: 年次データが${years.length}件のみで不足`);
+      }
+    } else {
+      errors.push('人口データ: 該当データなし（statsDataId=0003448467, cdArea=' + areaCode + '）');
+    }
+  } catch (e) {
+    errors.push('人口データ取得失敗: ' + e.message);
+  }
+
+  // ── 2. 地価公示 変動率（都道府県別住宅地）
+  // 統計表ID: 0003190976 = 都道府県地価調査 用途別変動率 住宅地
+  try {
+    const vals = await fetchEstatData(apiKey, '0003190976', {
+      cdArea: areaCode,
       limit: 100,
     });
-  } catch(e) {
-    throw new Error('e-Stat API リクエスト失敗: ' + e.message);
-  }
-
-  if (!values || values.length === 0) {
-    throw new Error(`データが見つかりません。都道府県コード ${prefCode}（${PREF_NAMES[prefCode]}）に対応するデータが e-Stat に存在しないか、APIキーに問題があります。`);
-  }
-
-  // データ整形 (年ごとに集計)
-  const byYear = {};
-  values.forEach(v => {
-    const t = v['@time'] || '';
-    const year = t.substring(0, 4);
-    if (year && v['$'] && v['$'] !== '-') {
-      if (!byYear[year]) byYear[year] = [];
-      byYear[year].push(parseFloat(v['$']));
+    if (vals && vals.length > 0) {
+      const { years, data } = aggregateByYear(vals, 10);
+      if (years.length >= 2) {
+        result.landYears  = years;
+        result.landData   = data;
+        result.currentLand = data[data.length - 1];
+      } else {
+        errors.push(`地価データ: 年次データが${years.length}件のみで不足`);
+      }
+    } else {
+      errors.push('地価データ: 該当データなし（statsDataId=0003190976, cdArea=' + areaCode + '）');
     }
-  });
-
-  const years = Object.keys(byYear).sort().slice(-10);
-  if (years.length < 3) {
-    throw new Error(`データが不足しています（取得件数: ${years.length}年分）。この都道府県では分析に必要なデータが揃っていません。`);
+  } catch (e) {
+    errors.push('地価データ取得失敗: ' + e.message);
   }
 
-  const data_arr = years.map(y => {
-    const arr = byYear[y];
-    return Math.round(arr.reduce((a,b)=>a+b,0)/arr.length * 10) / 10;
-  });
+  // ── 3. 住宅着工統計（都道府県別・マンション着工戸数）
+  // 統計表ID: 0003080157 = 建築着工統計調査 都道府県別マンション
+  try {
+    const vals = await fetchEstatData(apiKey, '0003080157', {
+      cdArea: areaCode,
+      limit: 100,
+    });
+    if (vals && vals.length > 0) {
+      const { years, data } = aggregateByYear(vals, 10);
+      if (years.length >= 2) {
+        result.priceYears     = years;  // 着工戸数の年次推移を価格チャートに流用
+        result.priceData      = data;
+        result.currentPriceIdx = data[data.length - 1];
+        result.priceChange    = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
+        // 供給増減率
+        result.supplyGrowth = result.priceChange;
+      } else {
+        errors.push(`着工データ: 年次データが${years.length}件のみ`);
+      }
+    } else {
+      errors.push('着工データ: 該当データなし（statsDataId=0003080157, cdArea=' + areaCode + '）');
+    }
+  } catch (e) {
+    errors.push('着工データ取得失敗: ' + e.message);
+  }
 
-  // 他の指標はサンプル補完（APIに対応データなし）
-  const base = generateSampleData(prefCode);
-  base.isDemo = false;
-  base.priceYears = years.map(Number);
-  base.priceData = data_arr;
-  base.currentPriceIdx = data_arr[data_arr.length-1];
-  base.priceChange = +((data_arr[data_arr.length-1]/data_arr[data_arr.length-2]-1)*100).toFixed(1);
-  return base;
+  // ── 4. 住宅・土地統計 空き家率
+  // 統計表ID: 0003127744（5年毎 → 最新値のみ取得）
+  try {
+    const vals = await fetchEstatData(apiKey, '0003127744', {
+      cdArea: areaCode,
+      limit: 20,
+    });
+    if (vals && vals.length > 0) {
+      const nums = vals.map(v => parseFloat(v['$'])).filter(n => !isNaN(n) && n > 0);
+      if (nums.length > 0) result.vacancyRate = +(nums[nums.length - 1]).toFixed(1);
+    } else {
+      errors.push('空き家データ: 該当データなし');
+    }
+  } catch (e) {
+    errors.push('空き家データ取得失敗: ' + e.message);
+  }
+
+  // 必須データ（人口 or 地価）が最低1つ取れていればOK
+  const hasEnoughData = result.popYears.length >= 2 || result.landYears.length >= 2;
+  if (!hasEnoughData) {
+    const detail = errors.join('\n');
+    throw new Error(
+      `${prefName}のデータを e-Stat から取得できませんでした。\n\n` +
+      `【各データソースの状況】\n${detail}\n\n` +
+      `【考えられる原因】\n` +
+      `・APIキーが正しくない（e-Stat マイページで確認: https://www.e-stat.go.jp/mypage/）\n` +
+      `・ブラウザのCORS制限（ローカルファイルとして開いている場合は簡易サーバー経由でアクセスしてください）\n` +
+      `・e-Stat のサーバー障害（しばらくしてから再試行してください）`
+    );
+  }
+
+  // 部分的に取得できた場合はデフォルト値で補完
+  if (result.vacancyRate === null) result.vacancyRate = 13.6; // 全国平均値
+  if (result.supplyGrowth === null) result.supplyGrowth = 0;
+  if (result.affordabilityRatio === null) {
+    // 人口増減から年収倍率を大まかに推定
+    const isGrowing = result.popChange !== null && result.popChange > 0;
+    result.affordabilityRatio = isGrowing ? 9.5 : 7.2;
+  }
+  if (result.currentLand === null) result.currentLand = 0;
+  if (result.landYears.length === 0) {
+    result.landYears = [2024];
+    result.landData  = [0];
+  }
+  if (result.priceYears.length === 0) {
+    result.priceYears = [2024];
+    result.priceData  = [0];
+  }
+
+  // 部分取得警告をセット
+  if (errors.length > 0) {
+    result.partialWarning = `一部データが取得できませんでした:\n${errors.join('\n')}`;
+  }
+
+  return result;
 }
+
 
 // ===========================
 // SCORING ENGINE
@@ -1134,7 +1198,12 @@ function renderAll(data) {
   scoreEl.className = 'score-number ' + verdict.cls;
 
   document.getElementById('prefLabel').textContent = data.prefName;
-  document.getElementById('demoBadge').style.display = data.isDemo ? 'inline-block' : 'none';
+  document.getElementById('demoBadge').style.display = 'none';
+
+  // 部分取得警告
+  if (data.partialWarning) {
+    showError('一部データが取得できませんでした（利用可能なデータのみ表示）', data.partialWarning);
+  }
 
   const vt = document.getElementById('verdictText');
   vt.textContent = verdict.text;
