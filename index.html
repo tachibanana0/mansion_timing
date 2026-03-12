@@ -1003,51 +1003,22 @@ async function fetchRealData(apiKey, prefCode) {
   }
 
   // ── 2. 地価変動率
-  // 0003348814 = 社会・人口統計体系 都道府県データ
-  // @tab=070（居住）, @cat01=00005020 が地価変動率（住宅地）に相当する可能性
-  // cdCat01を指定せず全取得→@timeと$のみで時系列構築
-  // cdArea指定で都道府県絞り込み（このテーブルは @cat03 に都道府県コードが入る）
+  // 0003348814 の構造確認: cdCat01=00005020 で絞って全件取得、@tab/@cat03の値を確認
   let landOk = false;
   try {
-    // 地価変動率: cat01=00005020, tab=070, cdArea は @cat03 に対応
     const vals = await fetchEstatData(apiKey, '0003348814', {
-      cdCat01: '00005020',  // 住宅地地価変動率の指標コード
-      cdTab:   '070',
-      cdCat03: prefCode.padStart(2, '0'),  // 都道府県コード2桁
-      limit: 500,
+      cdCat01: '00005020',
+      limit: 200,
     });
-    if (vals && vals.length >= 2) {
-      const { years, data } = aggregateByYear(vals, 10);
-      if (years.length >= 2) {
-        result.landYears   = years;
-        result.landData    = data;
-        result.currentLand = data[data.length - 1];
-        landOk = true;
-      }
+    if (vals && vals.length > 0) {
+      // @tab と @cat03 の一意な値を収集してエラーに出力
+      const tabs  = [...new Set(vals.map(v => v['@tab']))].slice(0, 10);
+      const cat3s = [...new Set(vals.map(v => v['@cat03']))].slice(0, 10);
+      const cat2s = [...new Set(vals.map(v => v['@cat02']))].slice(0, 10);
+      errors.push(`[地価DEBUG] @tab=${JSON.stringify(tabs)} @cat02=${JSON.stringify(cat2s)} @cat03=${JSON.stringify(cat3s)} 件数=${vals.length}`);
     }
-  } catch (e) { /* フォールバックへ */ }
-
-  if (!landOk) {
-    // フォールバック: cdCat03なしで全都道府県取得→JS側でtab/cat03でフィルタ
-    try {
-      const vals = await fetchEstatData(apiKey, '0003348814', {
-        cdCat01: '00005020',
-        cdTab:   '070',
-        limit: 1000,
-      });
-      if (vals && vals.length > 0) {
-        const p2 = prefCode.padStart(2, '0');
-        const filtered = vals.filter(v => (v['@cat03'] || '') === p2);
-        const target = filtered.length > 0 ? filtered : vals;
-        const { years, data } = aggregateByYear(target, 10);
-        if (years.length >= 2) {
-          result.landYears   = years;
-          result.landData    = data;
-          result.currentLand = data[data.length - 1];
-          landOk = true;
-        }
-      }
-    } catch (e2) { /* ignore */ }
+  } catch (e) {
+    errors.push('地価DEBUG失敗: ' + e.message.substring(0, 80));
   }
   if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
 
