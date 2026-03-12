@@ -1002,32 +1002,76 @@ async function fetchRealData(apiKey, prefCode) {
     errors.push('人口データ: ' + e.message);
   }
 
-  // ── 2. 地価 & 3. 着工 デバッグ取得
-  // 各IDのVALUE[0]のキー構造をerrorsに出力してフィルタ条件を確認する
-  const debugIds = {
-    land: ['0003348814', '0003005325', '0003005159'],
-    supply: ['0003068816', '0003070067', '0003007241'],
-  };
-
-  for (const [kind, ids] of Object.entries(debugIds)) {
-    for (const id of ids) {
-      try {
-        const vals = await fetchEstatData(apiKey, id, { limit: 100 });
-        if (vals && vals.length > 0) {
-          const sample = vals[0];
-          const keys = JSON.stringify(sample);
-          errors.push(`[DEBUG ${kind} ID=${id}] 件数=${vals.length} sample=${keys.substring(0,300)}`);
-        } else {
-          errors.push(`[DEBUG ${kind} ID=${id}] レスポンス空`);
-        }
-      } catch (e) {
-        errors.push(`[DEBUG ${kind} ID=${id}] エラー: ${e.message.substring(0,100)}`);
+  // ── 2. 地価変動率
+  // 0003348814 = 社会・人口統計体系 都道府県データ
+  // @tab=070（居住）, @cat01=00005020 が地価変動率（住宅地）に相当する可能性
+  // cdCat01を指定せず全取得→@timeと$のみで時系列構築
+  // cdArea指定で都道府県絞り込み（このテーブルは @cat03 に都道府県コードが入る）
+  let landOk = false;
+  try {
+    // 地価変動率: cat01=00005020, tab=070, cdArea は @cat03 に対応
+    const vals = await fetchEstatData(apiKey, '0003348814', {
+      cdCat01: '00005020',  // 住宅地地価変動率の指標コード
+      cdTab:   '070',
+      cdCat03: prefCode.padStart(2, '0'),  // 都道府県コード2桁
+      limit: 500,
+    });
+    if (vals && vals.length >= 2) {
+      const { years, data } = aggregateByYear(vals, 10);
+      if (years.length >= 2) {
+        result.landYears   = years;
+        result.landData    = data;
+        result.currentLand = data[data.length - 1];
+        landOk = true;
       }
     }
-  }
+  } catch (e) { /* フォールバックへ */ }
 
-  const landOk = false;
-  const supplyOk = false;
+  if (!landOk) {
+    // フォールバック: cdCat03なしで全都道府県取得→JS側でtab/cat03でフィルタ
+    try {
+      const vals = await fetchEstatData(apiKey, '0003348814', {
+        cdCat01: '00005020',
+        cdTab:   '070',
+        limit: 1000,
+      });
+      if (vals && vals.length > 0) {
+        const p2 = prefCode.padStart(2, '0');
+        const filtered = vals.filter(v => (v['@cat03'] || '') === p2);
+        const target = filtered.length > 0 ? filtered : vals;
+        const { years, data } = aggregateByYear(target, 10);
+        if (years.length >= 2) {
+          result.landYears   = years;
+          result.landData    = data;
+          result.currentLand = data[data.length - 1];
+          landOk = true;
+        }
+      }
+    } catch (e2) { /* ignore */ }
+  }
+  if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
+
+  // ── 3. 建築着工統計 都道府県別着工戸数
+  // 0003119713 = 建築着工統計 【住宅】都道府県別着工戸数（@area に都道府県コード）
+  let supplyOk = false;
+  try {
+    const vals = await fetchEstatData(apiKey, '0003119713', {
+      cdArea: areaCode,  // "04000" 形式
+      limit: 500,
+    });
+    if (vals && vals.length >= 2) {
+      const { years, data } = aggregateByYear(vals, 10);
+      if (years.length >= 2) {
+        result.priceYears      = years;
+        result.priceData       = data;
+        result.currentPriceIdx = data[data.length - 1];
+        result.priceChange     = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
+        result.supplyGrowth    = result.priceChange;
+        supplyOk = true;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  if (!supplyOk) errors.push('着工データ: 取得できませんでした（スコアに影響しません）');
 
   // 人口データが取れていれば分析続行
   const hasEnoughData = result.popYears.length >= 2;
