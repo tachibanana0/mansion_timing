@@ -1002,62 +1002,32 @@ async function fetchRealData(apiKey, prefCode) {
     errors.push('人口データ: ' + e.message);
   }
 
-  // ── 2. 地価公示・地価調査 都道府県別住宅地変動率
-  // 社会・人口統計体系「都道府県のすがた」に含まれる地価変動率指標
-  // 0003348814 = 社会・人口統計体系 都道府県データ（居住カテゴリ）
-  // フォールバック: 0003005325 = 地価公示 都道府県別用途別価格・変動率
-  const landIds = ['0003348814', '0003005325', '0003005159'];
-  let landOk = false;
-  for (const lid of landIds) {
-    if (landOk) break;
-    try {
-      const vals = await fetchEstatData(apiKey, lid, { limit: 2000 });
-      if (vals && vals.length > 0) {
-        const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
-        if (prefVals.length > 0) {
-          const { years, data } = aggregateByYear(prefVals, 10);
-          if (years.length >= 2) {
-            result.landYears   = years;
-            result.landData    = data;
-            result.currentLand = data[data.length - 1];
-            landOk = true;
-          }
-        }
-      }
-    } catch (e) {
-      // 次のIDを試す
-    }
-  }
-  if (!landOk) errors.push('地価データ: 対応する統計表が見つかりません（複数ID試行済み）');
+  // ── 2. 地価 & 3. 着工 デバッグ取得
+  // 各IDのVALUE[0]のキー構造をerrorsに出力してフィルタ条件を確認する
+  const debugIds = {
+    land: ['0003348814', '0003005325', '0003005159'],
+    supply: ['0003068816', '0003070067', '0003007241'],
+  };
 
-  // ── 3. 建築着工統計 都道府県別・新設住宅着工戸数
-  // 0003068816 = 建築着工統計 都道府県別用途別着工床面積（@cat 系に都道府県情報）
-  // フォールバック: 0003070067 = 建築着工統計 都道府県別新設住宅
-  const supplyIds = ['0003068816', '0003070067', '0003007241'];
-  let supplyOk = false;
-  for (const sid of supplyIds) {
-    if (supplyOk) break;
-    try {
-      const vals = await fetchEstatData(apiKey, sid, { limit: 2000 });
-      if (vals && vals.length > 0) {
-        const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
-        if (prefVals.length > 0) {
-          const { years, data } = aggregateByYear(prefVals, 10);
-          if (years.length >= 2) {
-            result.priceYears      = years;
-            result.priceData       = data;
-            result.currentPriceIdx = data[data.length - 1];
-            result.priceChange     = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
-            result.supplyGrowth    = result.priceChange;
-            supplyOk = true;
-          }
+  for (const [kind, ids] of Object.entries(debugIds)) {
+    for (const id of ids) {
+      try {
+        const vals = await fetchEstatData(apiKey, id, { limit: 100 });
+        if (vals && vals.length > 0) {
+          const sample = vals[0];
+          const keys = JSON.stringify(sample);
+          errors.push(`[DEBUG ${kind} ID=${id}] 件数=${vals.length} sample=${keys.substring(0,300)}`);
+        } else {
+          errors.push(`[DEBUG ${kind} ID=${id}] レスポンス空`);
         }
+      } catch (e) {
+        errors.push(`[DEBUG ${kind} ID=${id}] エラー: ${e.message.substring(0,100)}`);
       }
-    } catch (e) {
-      // 次のIDを試す
     }
   }
-  if (!supplyOk) errors.push('着工データ: 対応する統計表が見つかりません（複数ID試行済み）');
+
+  const landOk = false;
+  const supplyOk = false;
 
   // 人口データが取れていれば分析続行
   const hasEnoughData = result.popYears.length >= 2;
