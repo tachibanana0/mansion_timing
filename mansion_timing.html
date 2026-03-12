@@ -1,69 +1,89 @@
 <!DOCTYPE html>
-<!-- (HTMLの他の部分は変更なし) -->
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【最終版】マンション購入タイミングAI判定アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-50 font-sans text-slate-800 min-h-screen pb-12">
 
-    <script>
-        // (JavaScriptの他の部分も変更なし)
+    <header class="bg-indigo-600 text-white shadow-md py-4 mb-8">
+        <div class="max-w-4xl mx-auto px-4 flex items-center justify-between">
+            <h1 class="text-2xl font-bold"><i class="fas fa-building mr-2"></i>【最終版】マンション購入判定アプリ</h1>
+        </div>
+    </header>
 
-        // ==========================================
-        // 国土交通省 Webland API (APIキー不要)
-        // ==========================================
-        async function fetchRealEstateData(prefCode) {
-            // 直近の四半期データを取得 (2024年第3四半期を指定。本来は動的に最新期を指定します)
-            const period = "20243"; 
+    <main class="max-w-4xl mx-auto px-4">
+        
+        <section class="bg-white rounded-xl shadow-sm p-6 mb-8 border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-700 mb-4 border-b pb-2">設定・条件入力</h2>
             
-            // ★★★★★ ここからが変更点 ★★★★★
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">e-Stat APIキー <span class="text-xs text-slate-400">(任意 / 人口データ用)</span></label>
+                    <input type="text" id="apiKey" placeholder="APIキーを入力 (空欄でも国交省APIは動きます)" 
+                           class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                    <p class="text-xs text-slate-500 mt-1">※国交省API (不動産価格) はキー不要で自動取得します</p>
+                </div>
 
-            // 1. 本来のリクエスト先URLを定義
-            const targetUrl = `https://www.land.mlit.go.jp/webland/api/TradeListSearch?from=${period}&to=${period}&area=${prefCode}`;
+                <div>
+                    <label class="block text-sm font-medium text-slate-600 mb-1">購入検討エリア (都道府県)</label>
+                    <select id="prefecture" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <!-- JSで動的に追加されます -->
+                    </select>
+                </div>
+            </div>
 
-            // 2. 無料のCORSプロキシサーバーを挟んだURLを生成
-            const url = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+            <button id="btnAnalyze" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md flex justify-center items-center">
+                <i class="fas fa-search-location mr-2"></i> 実際のデータで判定する
+            </button>
+        </section>
 
-            // ★★★★★ ここまでが変更点 ★★★★★
+        <div id="loading" class="hidden text-center py-10">
+            <i class="fas fa-spinner fa-spin text-4xl text-indigo-600 mb-4"></i>
+            <p class="text-slate-600 font-bold">国交省APIから取引データを取得中...</p>
+            <p class="text-xs text-slate-400 mt-2">※データ量が多いため数秒かかる場合があります</p>
+        </div>
+        
+        <div id="error" class="hidden text-center py-10 bg-rose-50 border-l-4 border-rose-500 rounded p-4">
+             <h3 class="font-bold text-rose-800">エラーが発生しました</h3>
+             <p class="text-rose-700 mt-2" id="errorMessage"></p>
+        </div>
 
-            const response = await fetch(url);
-            if (!response.ok) throw new Error('国交省APIの通信に失敗しました');
-            const json = await response.json();
-
-            // (これ以降の処理は変更なし)
+        <section id="results" class="hidden animate-fade-in-up">
             
-            if (json.status !== "OK") {
-                 // corsproxy.io経由の場合、エラー詳細が本体に含まれることがある
-                 if(json.contents) {
-                     const originalJson = JSON.parse(json.contents);
-                     if(originalJson.status !== "OK") {
-                        throw new Error('国交省APIから正常なデータが返却されませんでした');
-                     }
-                     // エラーでなければ、以降の処理のためにデータを差し替える
-                     json.data = originalJson.data;
-                 } else {
-                    throw new Error('国交省APIから正常なデータが返却されませんでした');
-                 }
-            }
+            <div class="bg-white rounded-xl shadow-sm p-6 mb-8 border-t-4 border-indigo-600 text-center">
+                <h2 class="text-xl font-bold text-slate-700 mb-2">独自の購入推奨スコア</h2>
+                <div class="flex justify-center items-end gap-2 my-4">
+                    <span id="scoreValue" class="text-6xl font-black text-indigo-600">0</span>
+                    <span class="text-2xl font-bold text-slate-500 mb-2">/ 100点</span>
+                </div>
+                <div id="judgementRank" class="inline-block px-6 py-2 rounded-full text-xl font-bold mb-4">
+                    判定ランク: -
+                </div>
+                <p id="judgementText" class="text-slate-600 mt-2 font-medium leading-relaxed max-w-2xl mx-auto"></p>
+            </div>
 
-            const mansions = json.data.filter(item => item.Type === "中古マンション等");
-            const tradeCount = mansions.length;
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+                    <div class="flex items-center text-slate-500 mb-2">
+                        <i class="fas fa-yen-sign text-emerald-500 text-xl w-8"></i>
+                        <h3 class="font-bold">直近の中古マンション平均価格</h3>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-2">※国交省取引データに基づく平米単価</p>
+                    <div class="text-3xl font-bold text-slate-800 mt-2">
+                        <span id="unitPrice">0</span> <span class="text-lg font-normal text-slate-500">万円 / ㎡</span>
+                    </div>
+                    <div class="text-sm text-slate-500 mt-2 border-t pt-2">
+                        (参考坪単価: 約 <span id="tsuboPrice" class="font-bold text-slate-700">0</span> 万円)
+                    </div>
+                </div>
 
-            let avgUnitPrice = 0;
-            if (tradeCount > 0) {
-                const validPrices = mansions.filter(m => m.UnitPrice).map(m => parseInt(m.UnitPrice, 10)); // 数値に変換
-                if (validPrices.length > 0) {
-                    const sum = validPrices.reduce((a, b) => a + b, 0);
-                    avgUnitPrice = sum / validPrices.length;
-                }
-            }
-
-            const unitPriceManYen = avgUnitPrice / 10000;
-            const tsuboPriceManYen = unitPriceManYen * 3.3;
-
-            return {
-                tradeCount: tradeCount,
-                unitPriceManYen: unitPriceManYen.toFixed(1),
-                tsuboPriceManYen: tsuboPriceManYen.toFixed(1)
-            };
-        }
-
-        // (他のJavaScript関数は変更なし)
-    </script>
-</body>
-</html>
+                <div class="bg-white rounded-xl shadow-sm p-6 border border-slate-200">
+                    <div class="flex items-center text-slate-500 mb-4">
+                        <i class="fas fa-exchange-alt text-rose-500 text-xl w-8"></i>
+                        <h3 class="font-bold">市場の流動性 (直近1四半
