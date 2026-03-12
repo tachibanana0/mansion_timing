@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マンション購入タイミング判定 (Pro Edition)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg: #0f172a; --bg-card: #1e293b; --text: #f8fafc; --text-muted: #94a3b8;
+            --border: #334155; --blue: #3b82f6; --indigo: #6366f1; --green: #22c55e;
+            --yellow: #eab308; --red: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg); color: var(--text); line-height: 1.5; }
+        header { background: linear-gradient(to bottom, #1e3a8a, #0f172a); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+        .api-key-input { display: flex; align-items: center; gap: 0.5rem; background: rgba(0,0,0,0.2); padding: 0.5rem 1rem; border-radius: 9999px; border: 1px solid var(--border); }
+        .api-key-input input { background: transparent; border: none; color: #fff; outline: none; width: 180px; font-size: 0.85rem; }
+        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .btn { background: var(--blue); color: #fff; border: none; padding: 0.7rem 1.5rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn:hover { opacity: 0.9; }
+        .dashboard-grid { display: none; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+        .summary-card { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 2rem; }
+        .score-ring { width: 120px; height: 120px; border: 8px solid; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .score-num { font-size: 2.5rem; font-weight: 800; }
+        .progress-bar { background: var(--border); height: 8px; border-radius: 4px; overflow: hidden; width: 100%; margin-top: 5px; }
+        .progress-bar div { height: 100%; transition: width 0.5s; }
+        .error-msg { display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--red); color: var(--red); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem; white-space: pre-wrap; font-size: 0.85rem; }
+        .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); z-index: 100; align-items: center; justify-content: center; font-weight: 700; }
+        h4 { margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-overlay">e-Statからデータを自動抽出中...</div>
+    <header>
+        <div><h1>🏢 マンション購入判定</h1></div>
+        <div class="api-key-input"><i data-lucide="key" style="width:16px;"></i><input type="password" id="api-key" placeholder="e-Stat AppIDを入力"></div>
+    </header>
+    <main class="container">
+        <section class="card">
+            <div style="display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap;">
+                <div style="display:flex; flex-direction:column; gap:0.4rem;">
+                    <label style="font-size:0.75rem; color:var(--text-muted);">都道府県を選択</label>
+                    <select id="pref-select" style="padding: 0.6rem; border-radius: 0.5rem; background: #0f172a; color: white; border: 1px solid var(--border); min-width: 180px;"></select>
+                </div>
+                <button id="analyze-btn" class="btn">最新情報を分析</button>
+            </div>
+        </section>
+        <div id="error-view" class="error-msg"></div>
+        <div id="dashboard" class="dashboard-grid">
+            <div class="summary-card card">
+                <div class="score-display">
+                    <div id="score-ring" class="score-ring"><span id="score-num" class="score-num">0</span><span style="font-size:0.8rem;">pt</span></div>
+                    <div id="status-label" style="font-size: 1.5rem; font-weight: 700; margin-top: 10px; text-align: center;"></div>
+                </div>
+                <div style="flex: 1; min-width: 250px;">
+                    <div style="margin-bottom:0.8rem;">価格適正度<div class="progress-bar"><div id="price-progress" style="background: var(--blue)"></div></div></div>
+                    <div style="margin-bottom:0.8rem;">地価トレンド<div class="progress-bar"><div id="land-progress" style="background: var(--indigo)"></div></div></div>
+                    <div>人口将来性<div class="progress-bar"><div id="pop-progress" style="background: var(--green)"></div></div></div>
+                </div>
+            </div>
+            <div class="card"><h4>不動産価格指数</h4><canvas id="repi-chart"></canvas></div>
+            <div class="card"><h4>公示地価推移 (住宅地)</h4><canvas id="land-chart"></canvas></div>
+            <div class="card"><h4>人口推移</h4><canvas id="pop-chart"></canvas></div>
+            <div class="card" style="grid-column: 1/-1; border-left: 4px solid var(--blue);">
+                <h4>分析アドバイス</h4><div id="advice-content" style="margin-top:10px;"></div>
+            </div>
+        </div>
+        <div id="welcome-view" style="text-align: center; padding: 4rem; color: var(--text-muted);">
+            <i data-lucide="home" style="width:48px; height:48px; margin-bottom:1rem;"></i>
+            <h2>最新の統計情報を自動解析します</h2>
+            <p>e-Statの膨大なデータから最適な項目を動的に抽出して分析します。</p>
+        </div>
+    </main>
+
+    <script>
+        const BASE_URL = 'https://api.e-stat.go.jp/rest/3.0/app/json/';
+        let charts = {};
+
+        const PREFECTURES = [
+            { id: '01000', name: '北海道' }, { id: '02000', name: '青森県' }, { id: '03000', name: '岩手県' },
+            { id: '04000', name: '宮城県' }, { id: '05000', name: '秋田県' }, { id: '06000', name: '山形県' },
+            { id: '07000', name: '福島県' }, { id: '08000', name: '茨城県' }, { id: '09000', name: '栃木県' },
+            { id: '10000', name: '群馬県' }, { id: '11000', name: '埼玉県' }, { id: '12000', name: '千葉県' },
+            { id: '13000', name: '東京都' }, { id: '14000', name: '神奈川県' }, { id: '15000', name: '新潟県' },
+            { id: '16000', name: '富山県' }, { id: '17000', name: '石川県' }, { id: '18000', name: '福井県' },
+            { id: '19000', name: '山梨県' }, { id: '20000', name: '長野県' }, { id: '21000', name: '岐阜県' },
+            { id: '22000', name: '静岡県' }, { id: '23000', name: '愛知県' }, { id: '24000', name: '三重県' },
+            { id: '25000', name: '滋賀県' }, { id: '26000', name: '京都府' }, { id: '27000', name: '大阪府' },
+            { id: '28000', name: '兵庫県' }, { id: '29000', name: '奈良県' }, { id: '30000', name: '和歌山県' },
+            { id: '31000', name: '鳥取県' }, { id: '32000', name: '島根県' }, { id: '33000', name: '岡山県' },
+            { id: '34000', name: '広島県' }, { id: '35000', name: '山口県' }, { id: '36000', name: '徳島県' },
+            { id: '37000', name: '香川県' }, { id: '38000', name: '愛媛県' }, { id: '39000', name: '高知県' },
+            { id: '40000', name: '福岡県' }, { id: '41000', name: '佐賀県' }, { id: '42000', name: '長崎県' },
+            { id: '43000', name: '熊本県' }, { id: '44000', name: '大分県' }, { id: '45000', name: '宮崎県' },
+            { id: '46000', name: '鹿児島県' }, { id: '47000', name: '沖縄県' }
+        ];
+
+        // UI Initialization
+        const prefSelect = document.getElementById('pref-select');
+        PREFECTURES.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = p.id; opt.textContent = p.name;
+            if (p.id === '13000') opt.selected = true;
+            prefSelect.appendChild(opt);
+        });
+        const apiKeyInput = document.getElementById('api-key');
+        apiKeyInput.value = localStorage.getItem('estat_appid') || '';
+        lucide.createIcons();
+
+        // Data Retrieval Engine
+        async function smartFetch(appId, statsCode, areaCode, keywords) {
+            // 1. Get the latest table ID for this statistic
+            const listUrl = `${BASE_URL}getStatsList?appId=${appId}&statsCode=${statsCode}&limit=1`;
+            const listResp = await fetch(listUrl);
+            const listData = await listResp.json();
+            
+            if (!listData.GET_STATS_LIST.DATALIST_INF) {
+                throw new Error(`統計コード [${statsCode}] のデータリストが見つかりません。`);
+            }
+            
+            const tableInf = listData.GET_STATS_LIST.DATALIST_INF.TABLE_INF;
+            const tableId = Array.isArray(tableInf) ? tableInf[0]['@id'] : tableInf['@id'];
+
+            // 2. Fetch data WITH metadata to find the right codes
+            let currentArea = areaCode;
+            let dataUrl = `${BASE_URL}getStatsData?appId=${appId}&statsDataId=${tableId}&cdArea=${currentArea}&limit=500&metaGetFlg=Y`;
+            let dataResp = await fetch(dataUrl);
+            let data = await dataResp.json();
+
+            // Handle "No data" - Retry with 2-digit area code (pref only) if 5-digit failed
+            if ((data.GET_STATS_DATA.RESULT.STATUS !== 0 || !data.GET_STATS_DATA.STATISTICAL_DATA) && currentArea.length === 5) {
+                currentArea = areaCode.substring(0, 2);
+                dataUrl = `${BASE_URL}getStatsData?appId=${appId}&statsDataId=${tableId}&cdArea=${currentArea}&limit=500&metaGetFlg=Y`;
+                dataResp = await fetch(dataUrl);
+                data = await dataResp.json();
+            }
+
+            if (data.GET_STATS_DATA.RESULT.STATUS !== 0) throw new Error(data.GET_STATS_DATA.RESULT.ERROR_MSG);
+
+            const meta = data.GET_STATS_DATA.STATISTICAL_DATA.CLASS_INF.CLASS_OBJ;
+            const values = data.GET_STATS_DATA.STATISTICAL_DATA.DATA_INF.VALUE;
+            if (!values) throw new Error(`[Code:${statsCode}] 該当する数値が見つかりませんでした。`);
+
+            // Find the correct category code by keyword matching in names
+            let targetCode = "";
+            const metaArray = Array.isArray(meta) ? meta : [meta];
+            
+            for (const obj of metaArray) {
+                const classes = Array.isArray(obj.CLASS) ? obj.CLASS : [obj.CLASS];
+                for (const c of classes) {
+                    if (keywords.some(k => c['@name'].includes(k))) {
+                        targetCode = c['@code'];
+                        break;
+                    }
+                }
+                if (targetCode) break;
+            }
+
+            // Fallback for REPI (Real Estate Price Index)
+            if (!targetCode && statsCode === '00600650') {
+                targetCode = values[0]['@cat01'] || values[0]['@cat02'];
+            }
+
+            const rawArray = Array.isArray(values) ? values : [values];
+            const filteredData = rawArray
+                .filter(v => Object.values(v).includes(targetCode))
+                .map(v => ({
+                    year: v['@time'] ? v['@time'].substring(0, 4) : '不明',
+                    value: parseFloat(v['$'])
+                }))
+                .filter(v => !isNaN(v.value))
+                .sort((a,b) => parseInt(a.year) - parseInt(b.year));
+            
+            if (!filteredData.length) throw new Error(`[Code:${statsCode}] 条件に一致する時系列データが見つかりませんでした。`);
+            return filteredData;
+        }
+
+        function drawChart(id, label, data, color, type='line') {
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(document.getElementById(id), {
+                type: type,
+                data: { labels: data.map(d=>d.year), datasets: [{ label: label, data: data.map(d=>d.value), borderColor: color, backgroundColor: color+'22', fill: true, tension: 0.3 }] },
+                options: { responsive: true, plugins: { legend: { display: false } } }
+            });
+        }
+
+        document.getElementById('analyze-btn').addEventListener('click', async () => {
+            const appId = apiKeyInput.value.trim();
+            const prefCode = prefSelect.value;
+            if (!appId) return alert('e-Stat AppIDを入力してください');
+            localStorage.setItem('estat_appid', appId);
+            
+            document.getElementById('loading').style.display = 'flex';
+            document.getElementById('error-view').style.display = 'none';
+
+            try {
+                // Dynamic discovery and fetch
+                const [land, pop, repi] = await Promise.all([
+                    smartFetch(appId, '00600140', prefCode, ["住宅地"]),
+                    smartFetch(appId, '00200524', prefCode, ["総人口"]),
+                    smartFetch(appId, '00600650', prefCode, ["住宅"])
+                ]);
+
+                // Scoring
+                const currentRepi = repi[repi.length-1].value;
+                const avgRepi = repi.slice(-5).reduce((a,b)=>a+b.value,0)/5;
+                const priceScore = Math.max(0, Math.min(100, 100 - (currentRepi/avgRepi - 1.0)*500));
+                
+                const recentLand = land.slice(-3);
+                const landGrowth = (recentLand[recentLand.length-1].value / recentLand[0].value - 1);
+                const landScore = Math.max(0, Math.min(100, (landGrowth + 0.05)*1000));
+                
+                const recentPop = pop.slice(-5);
+                const popGrowth = (recentPop[recentPop.length-1].value / recentPop[0].value - 1);
+                const popScore = Math.max(0, Math.min(100, (popGrowth + 0.02)*2500));
+                
+                const totalScore = Math.round(priceScore*0.4 + landScore*0.3 + popScore*0.3);
+
+                // UI Update
+                document.getElementById('welcome-view').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'grid';
+                document.getElementById('score-num').textContent = totalScore;
+                
+                let status = totalScore >= 70 ? '買い時' : totalScore >= 40 ? '様子見' : '注意';
+                let color = totalScore >= 70 ? 'var(--green)' : totalScore >= 40 ? 'var(--yellow)' : 'var(--red)';
+                
+                document.getElementById('score-ring').style.borderColor = color;
+                document.getElementById('status-label').textContent = status;
+                document.getElementById('status-label').style.color = color;
+                
+                document.getElementById('price-progress').style.width = priceScore + '%';
+                document.getElementById('land-progress').style.width = landScore + '%';
+                document.getElementById('pop-progress').style.width = popScore + '%';
+
+                drawChart('repi-chart', '価格指数', repi, '#3b82f6');
+                drawChart('land-chart', '公示地価', land, '#6366f1');
+                drawChart('pop-chart', '総人口', pop, '#22c55e', 'bar');
+
+                document.getElementById('advice-content').innerHTML = `
+                    <p style="font-size: 1.1rem; font-weight: 700;">判定: ${status}</p>
+                    <p style="margin-top: 5px; color: var(--text-muted); font-size: 0.9rem;">
+                        最新の統計データに基づく分析結果です。総合スコア <strong>${totalScore}点</strong>。
+                    </p>
+                `;
+            } catch (err) {
+                document.getElementById('error-view').textContent = '⚠️ ' + err.message;
+                document.getElementById('error-view').style.display = 'block';
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
