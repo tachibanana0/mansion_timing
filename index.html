@@ -2,1506 +2,228 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>不動産購入タイミング判定 | PropSense</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;700&family=Bebas+Neue&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<title>e-Stat 統計表ID探索ツール</title>
 <style>
-  :root {
-    --ink: #0f0e0c;
-    --paper: #f5f0e8;
-    --cream: #ede8db;
-    --accent: #c8401a;
-    --accent2: #2a5c3f;
-    --gold: #b8963e;
-    --muted: #7a7468;
-    --border: #d4cec2;
-    --card-bg: #faf7f2;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    font-family: 'Noto Serif JP', serif;
-    background: var(--paper);
-    color: var(--ink);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /* NOISE TEXTURE */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0.6;
-  }
-
-  /* HEADER */
-  header {
-    position: relative;
-    padding: 48px 60px 36px;
-    border-bottom: 2px solid var(--ink);
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    background: var(--paper);
-    z-index: 10;
-  }
-
-  .logo-block .eyebrow {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.3em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 6px;
-  }
-
-  .logo-block h1 {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 56px;
-    letter-spacing: 0.05em;
-    line-height: 1;
-    color: var(--ink);
-  }
-
-  .logo-block h1 span {
-    color: var(--accent);
-  }
-
-  .header-right {
-    text-align: right;
-  }
-
-  .header-right p {
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.8;
-    font-family: 'DM Mono', monospace;
-  }
-
-  /* MAIN LAYOUT */
-  main {
-    position: relative;
-    z-index: 1;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 48px 60px;
-  }
-
-  /* API SETUP PANEL */
-  .setup-panel {
-    border: 1.5px solid var(--ink);
-    background: var(--card-bg);
-    padding: 40px;
-    margin-bottom: 48px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .setup-panel::before {
-    content: 'STEP 01';
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 120px;
-    color: var(--cream);
-    position: absolute;
-    right: -10px;
-    top: -20px;
-    line-height: 1;
-    pointer-events: none;
-  }
-
-  .setup-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr auto;
-    gap: 20px;
-    align-items: end;
-  }
-
-  .field-group {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .field-group label {
-    font-size: 10px;
-    letter-spacing: 0.25em;
-    text-transform: uppercase;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-
-  .field-group input,
-  .field-group select {
-    background: var(--paper);
-    border: 1.5px solid var(--border);
-    padding: 12px 16px;
-    font-size: 14px;
-    font-family: 'DM Mono', monospace;
-    color: var(--ink);
-    outline: none;
-    transition: border-color 0.2s;
-    width: 100%;
-  }
-
-  .field-group input:focus,
-  .field-group select:focus {
-    border-color: var(--ink);
-  }
-
-  .fetch-btn {
-    background: var(--ink);
-    color: var(--paper);
-    border: none;
-    padding: 13px 32px;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 20px;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    transition: all 0.2s;
-    white-space: nowrap;
-  }
-
-  .fetch-btn:hover {
-    background: var(--accent);
-  }
-
-  .fetch-btn:disabled {
-    background: var(--border);
-    cursor: not-allowed;
-  }
-
-  .api-note {
-    margin-top: 16px;
-    font-size: 11px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-
-  .api-note a { color: var(--accent2); }
-
-  /* ERROR DETAIL */
-  .error-detail {
-    margin-top: 10px;
-    padding: 10px 14px;
-    background: rgba(200,64,26,0.06);
-    border-left: 3px solid var(--accent);
-    font-size: 11px;
-    color: #a0341a;
-    font-family: 'DM Mono', monospace;
-    white-space: pre-wrap;
-    word-break: break-all;
-    display: none;
-  }
-  .error-detail.visible { display: block; }
-
-  /* VERDICT SECTION */
-  .verdict-section {
-    display: none;
-    margin-bottom: 48px;
-  }
-
-  .verdict-section.visible { display: block; }
-
-  .verdict-header {
-    border-bottom: 2px solid var(--ink);
-    padding-bottom: 12px;
-    margin-bottom: 32px;
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
-  }
-
-  .verdict-header h2 {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    letter-spacing: 0.08em;
-  }
-
-  .verdict-header .subtitle {
-    font-size: 12px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-    letter-spacing: 0.15em;
-  }
-
-  /* BIG VERDICT */
-  .verdict-main {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 0;
-    border: 1.5px solid var(--ink);
-    background: var(--card-bg);
-    margin-bottom: 32px;
-    overflow: hidden;
-  }
-
-  .verdict-score-block {
-    background: var(--ink);
-    color: var(--paper);
-    padding: 40px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-  }
-
-  .score-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.3em;
-    text-transform: uppercase;
-    color: rgba(245,240,232,0.5);
-    margin-bottom: 12px;
-  }
-
-  .score-number {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 96px;
-    line-height: 1;
-    color: var(--paper);
-    transition: color 0.5s;
-  }
-
-  .score-number.good { color: #6dbf8a; }
-  .score-number.caution { color: #e8c56a; }
-  .score-number.bad { color: #e87a5a; }
-
-  .score-max {
-    font-family: 'DM Mono', monospace;
-    font-size: 14px;
-    color: rgba(245,240,232,0.4);
-    margin-top: 4px;
-  }
-
-  .verdict-text-block {
-    padding: 40px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-
-  .verdict-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 0.3em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 12px;
-  }
-
-  .verdict-text {
-    font-size: 28px;
-    font-weight: 700;
-    line-height: 1.4;
-    margin-bottom: 20px;
-  }
-
-  .verdict-text.good { color: var(--accent2); }
-  .verdict-text.caution { color: var(--gold); }
-  .verdict-text.bad { color: var(--accent); }
-
-  .verdict-reason {
-    font-size: 14px;
-    color: var(--muted);
-    line-height: 1.9;
-    border-left: 3px solid var(--border);
-    padding-left: 16px;
-  }
-
-  /* INDICATOR GRID */
-  .indicator-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1.5px;
-    background: var(--ink);
-    border: 1.5px solid var(--ink);
-    margin-bottom: 32px;
-  }
-
-  .indicator-card {
-    background: var(--card-bg);
-    padding: 24px;
-  }
-
-  .indicator-name {
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-
-  .indicator-value {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 36px;
-    line-height: 1;
-    margin-bottom: 6px;
-  }
-
-  .indicator-value.good { color: var(--accent2); }
-  .indicator-value.caution { color: var(--gold); }
-  .indicator-value.bad { color: var(--accent); }
-  .indicator-value.neutral { color: var(--ink); }
-
-  .indicator-bar-track {
-    height: 3px;
-    background: var(--border);
-    margin-bottom: 6px;
-    position: relative;
-  }
-
-  .indicator-bar-fill {
-    position: absolute;
-    left: 0;
-    top: 0;
-    height: 100%;
-    transition: width 1s ease;
-  }
-
-  .indicator-bar-fill.good { background: var(--accent2); }
-  .indicator-bar-fill.caution { background: var(--gold); }
-  .indicator-bar-fill.bad { background: var(--accent); }
-
-  .indicator-desc {
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.6;
-    font-family: 'DM Mono', monospace;
-  }
-
-  /* CHARTS */
-  .charts-section {
-    display: none;
-    margin-bottom: 48px;
-  }
-  .charts-section.visible { display: block; }
-
-  .charts-header {
-    border-bottom: 2px solid var(--ink);
-    padding-bottom: 12px;
-    margin-bottom: 32px;
-    display: flex;
-    align-items: baseline;
-    gap: 16px;
-  }
-
-  .charts-header h2 {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    letter-spacing: 0.08em;
-  }
-
-  .charts-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-  }
-
-  .chart-card {
-    border: 1.5px solid var(--ink);
-    background: var(--card-bg);
-    padding: 28px;
-    position: relative;
-  }
-
-  .chart-card.full-width {
-    grid-column: span 2;
-  }
-
-  .chart-card h3 {
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 20px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .chart-wrap {
-    height: 240px;
-    position: relative;
-  }
-
-  .chart-wrap.tall { height: 300px; }
-
-  /* MARKET CONTEXT */
-  .context-section {
-    display: none;
-    margin-bottom: 48px;
-  }
-  .context-section.visible { display: block; }
-
-  .context-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1.5px;
-    background: var(--ink);
-    border: 1.5px solid var(--ink);
-  }
-
-  .context-card {
-    background: var(--card-bg);
-    padding: 28px;
-  }
-
-  .context-card .cat {
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .context-card .val {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 42px;
-    line-height: 1;
-    margin-bottom: 6px;
-  }
-
-  .context-card .trend {
-    font-size: 12px;
-    color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-
-  .context-card .trend.up { color: var(--accent); }
-  .context-card .trend.down { color: var(--accent2); }
-
-  /* LOADING */
-  .loading-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(245,240,232,0.9);
-    z-index: 999;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 24px;
-  }
-
-  .loading-overlay.active { display: flex; }
-
-  .loading-text {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    letter-spacing: 0.1em;
-    color: var(--ink);
-  }
-
-  .loading-dots {
-    display: flex;
-    gap: 8px;
-  }
-
-  .loading-dots span {
-    width: 8px;
-    height: 8px;
-    background: var(--ink);
-    border-radius: 50%;
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-
-  .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
-  .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-  @keyframes pulse {
-    0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-    40% { opacity: 1; transform: scale(1); }
-  }
-
-  /* ERROR */
-  .error-msg {
-    display: none;
-    background: #fdf0ed;
-    border: 1.5px solid var(--accent);
-    padding: 16px 20px;
-    margin-bottom: 24px;
-    font-family: 'DM Mono', monospace;
-    font-size: 12px;
-    color: var(--accent);
-  }
-
-  .error-msg.visible { display: block; }
-
-  /* DEMO NOTICE */
-  .demo-badge {
-    display: inline-block;
-    background: var(--gold);
-    color: var(--ink);
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    padding: 3px 8px;
-    margin-left: 8px;
-    vertical-align: middle;
-  }
-
-  /* STRATEGY SECTION */
-  .strategy-section {
-    display: none;
-    margin-bottom: 48px;
-  }
-  .strategy-section.visible { display: block; }
-
-  .strategy-cards {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
-  }
-
-  .strategy-card {
-    border: 1.5px solid var(--border);
-    background: var(--card-bg);
-    padding: 28px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .strategy-card .number {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 80px;
-    color: var(--cream);
-    position: absolute;
-    right: -4px;
-    bottom: -12px;
-    line-height: 1;
-  }
-
-  .strategy-card h4 {
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 10px;
-    position: relative;
-  }
-
-  .strategy-card p {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.8;
-    font-family: 'DM Mono', monospace;
-    position: relative;
-  }
-
-  /* FOOTER */
-  footer {
-    border-top: 1.5px solid var(--border);
-    padding: 24px 60px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  footer p {
-    font-family: 'DM Mono', monospace;
-    font-size: 10px;
-    color: var(--muted);
-    letter-spacing: 0.1em;
-  }
-
-  /* RESPONSIVE */
-  @media (max-width: 900px) {
-    header, main, footer { padding: 24px; }
-    .setup-grid { grid-template-columns: 1fr; }
-    .indicator-grid { grid-template-columns: repeat(2, 1fr); }
-    .charts-grid { grid-template-columns: 1fr; }
-    .chart-card.full-width { grid-column: span 1; }
-    .context-grid, .strategy-cards { grid-template-columns: 1fr; }
-    .verdict-main { grid-template-columns: 1fr; }
-    .logo-block h1 { font-size: 36px; }
-  }
-
-  /* ANIMATED ENTRANCE */
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .animate-in {
-    animation: fadeUp 0.6s ease forwards;
-  }
-
-  .delay-1 { animation-delay: 0.1s; opacity: 0; }
-  .delay-2 { animation-delay: 0.2s; opacity: 0; }
-  .delay-3 { animation-delay: 0.3s; opacity: 0; }
+body { font-family: monospace; background: #1a1a1a; color: #e0e0e0; padding: 20px; max-width: 1000px; margin: 0 auto; }
+h1 { color: #c8a96e; font-size: 1.2em; }
+label { display: block; margin-top: 12px; color: #aaa; font-size: 0.85em; }
+input, select { background: #2a2a2a; border: 1px solid #444; color: #e0e0e0; padding: 6px 10px; width: 100%; box-sizing: border-box; font-family: monospace; }
+button { margin-top: 10px; padding: 8px 20px; background: #c8401a; color: white; border: none; cursor: pointer; font-family: monospace; }
+button:hover { background: #e05020; }
+#result { margin-top: 20px; white-space: pre-wrap; background: #111; border: 1px solid #333; padding: 12px; font-size: 0.82em; max-height: 600px; overflow-y: auto; }
+.ok { color: #4caf50; }
+.err { color: #f44336; }
+.info { color: #64b5f6; }
+.section { margin-top: 20px; border-top: 1px solid #333; padding-top: 10px; }
 </style>
 </head>
 <body>
+<h1>🔍 e-Stat 統計表ID探索ツール</h1>
 
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="loading-text">データ取得中</div>
-  <div class="loading-dots">
-    <span></span><span></span><span></span>
-  </div>
+<label>APIキー</label>
+<input type="password" id="apiKey" placeholder="e-StatアプリケーションID">
+
+<div class="section">
+  <b style="color:#c8a96e">① 統計表を検索（キーワード）</b>
+  <label>検索キーワード</label>
+  <input type="text" id="keyword" value="住宅着工 都道府県" placeholder="例: 地価 都道府県 変動率">
+  <label>統計コード（省略可）</label>
+  <input type="text" id="statsCode" placeholder="例: 00600120（建築着工）, 00600310（地価公示）">
+  <button onclick="searchStats()">統計表を検索</button>
 </div>
 
-<header>
-  <div class="logo-block">
-    <div class="eyebrow">Real Estate Timing Intelligence</div>
-    <h1>PROP<span>SENSE</span></h1>
-  </div>
-  <div class="header-right">
-    <p>不動産購入タイミング判定システム<br>e-Stat API × 独自スコアリング</p>
-  </div>
-</header>
+<div class="section">
+  <b style="color:#c8a96e">② 統計表のサンプルデータを確認</b>
+  <label>統計表ID (statsDataId)</label>
+  <input type="text" id="statsDataId" placeholder="例: 0003119713">
+  <label>都道府県コード (1-47)</label>
+  <input type="text" id="prefCode" value="04" placeholder="例: 04（宮城）, 27（大阪）">
+  <button onclick="inspectTable()">構造を確認</button>
+  <button onclick="testPrefFilter()">都道府県フィルタをテスト</button>
+</div>
 
-<main>
-
-  <!-- SETUP -->
-  <div class="setup-panel animate-in">
-    <div class="setup-grid">
-      <div class="field-group">
-        <label>e-Stat API キー</label>
-        <input type="password" id="apiKey" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
-      </div>
-      <div class="field-group">
-        <label>都道府県を選択</label>
-        <select id="prefSelect">
-          <option value="">-- 選択してください --</option>
-          <option value="01">北海道</option>
-          <option value="02">青森県</option>
-          <option value="03">岩手県</option>
-          <option value="04">宮城県</option>
-          <option value="05">秋田県</option>
-          <option value="06">山形県</option>
-          <option value="07">福島県</option>
-          <option value="08">茨城県</option>
-          <option value="09">栃木県</option>
-          <option value="10">群馬県</option>
-          <option value="11">埼玉県</option>
-          <option value="12">千葉県</option>
-          <option value="13">東京都</option>
-          <option value="14">神奈川県</option>
-          <option value="15">新潟県</option>
-          <option value="16">富山県</option>
-          <option value="17">石川県</option>
-          <option value="18">福井県</option>
-          <option value="19">山梨県</option>
-          <option value="20">長野県</option>
-          <option value="21">岐阜県</option>
-          <option value="22">静岡県</option>
-          <option value="23">愛知県</option>
-          <option value="24">三重県</option>
-          <option value="25">滋賀県</option>
-          <option value="26">京都府</option>
-          <option value="27">大阪府</option>
-          <option value="28">兵庫県</option>
-          <option value="29">奈良県</option>
-          <option value="30">和歌山県</option>
-          <option value="31">鳥取県</option>
-          <option value="32">島根県</option>
-          <option value="33">岡山県</option>
-          <option value="34">広島県</option>
-          <option value="35">山口県</option>
-          <option value="36">徳島県</option>
-          <option value="37">香川県</option>
-          <option value="38">愛媛県</option>
-          <option value="39">高知県</option>
-          <option value="40">福岡県</option>
-          <option value="41">佐賀県</option>
-          <option value="42">長崎県</option>
-          <option value="43">熊本県</option>
-          <option value="44">大分県</option>
-          <option value="45">宮崎県</option>
-          <option value="46">鹿児島県</option>
-          <option value="47">沖縄県</option>
-        </select>
-      </div>
-      <button class="fetch-btn" id="fetchBtn" onclick="fetchData()">分析開始</button>
-    </div>
-    <p class="api-note">
-      ※ APIキーは <a href="https://www.e-stat.go.jp/api/" target="_blank">e-Stat API（政府統計の総合窓口）</a> から無料取得できます。取得には利用者登録が必要です。<br>
-      ※ APIキーは必須です。未入力の場合や取得エラーの場合はエラー内容を表示します。
-    </p>
-  </div>
-
-  <!-- ERROR -->
-  <div class="error-msg" id="errorMsg">
-    <div id="errorMsgText"></div>
-    <div class="error-detail" id="errorDetail"></div>
-  </div>
-
-  <!-- VERDICT -->
-  <div class="verdict-section animate-in delay-1" id="verdictSection">
-    <div class="verdict-header">
-      <h2>購入タイミング判定</h2>
-      <span class="subtitle" id="prefLabel">-- 都道府県</span>
-      <span class="demo-badge" id="demoBadge" style="display:none">SAMPLE DATA</span>
-    </div>
-
-    <div class="verdict-main">
-      <div class="verdict-score-block">
-        <div class="score-label">PropSense Score</div>
-        <div class="score-number" id="scoreNumber">--</div>
-        <div class="score-max">/ 100</div>
-      </div>
-      <div class="verdict-text-block">
-        <div class="verdict-label">総合判定</div>
-        <div class="verdict-text" id="verdictText">分析中...</div>
-        <div class="verdict-reason" id="verdictReason"></div>
-      </div>
-    </div>
-
-    <!-- INDICATOR GRID -->
-    <div class="indicator-grid" id="indicatorGrid">
-      <!-- JS で生成 -->
-    </div>
-  </div>
-
-  <!-- CHARTS -->
-  <div class="charts-section animate-in delay-2" id="chartsSection">
-    <div class="charts-header">
-      <h2>データチャート</h2>
-      <span class="subtitle" style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);">推移グラフ</span>
-    </div>
-    <div class="charts-grid">
-      <div class="chart-card">
-        <h3>マンション着工戸数推移（都道府県別）</h3>
-        <div class="chart-wrap">
-          <canvas id="priceChart"></canvas>
-        </div>
-      </div>
-      <div class="chart-card">
-        <h3>人口推移</h3>
-        <div class="chart-wrap">
-          <canvas id="popChart"></canvas>
-        </div>
-      </div>
-      <div class="chart-card">
-        <h3>地価変動率（住宅地）</h3>
-        <div class="chart-wrap">
-          <canvas id="landChart"></canvas>
-        </div>
-      </div>
-      <div class="chart-card">
-        <h3>金利・住宅ローン環境</h3>
-        <div class="chart-wrap">
-          <canvas id="rateChart"></canvas>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- CONTEXT -->
-  <div class="context-section animate-in delay-2" id="contextSection">
-    <div class="charts-header">
-      <h2>市場コンテキスト</h2>
-    </div>
-    <div class="context-grid" id="contextGrid">
-      <!-- JS で生成 -->
-    </div>
-  </div>
-
-  <!-- STRATEGY -->
-  <div class="strategy-section animate-in delay-3" id="strategySection">
-    <div class="charts-header">
-      <h2>購入戦略アドバイス</h2>
-    </div>
-    <div class="strategy-cards" id="strategyCards">
-      <!-- JS で生成 -->
-    </div>
-  </div>
-
-</main>
-
-<footer>
-  <p>PropSense — データ出典: e-Stat（政府統計の総合窓口）/ 日本銀行 / 国土交通省</p>
-  <p>本ツールは参考情報提供を目的としており、投資判断の保証ではありません。</p>
-</footer>
+<div id="result">結果がここに表示されます</div>
 
 <script>
-// ===========================
-// CHART INSTANCES
-// ===========================
-let charts = {};
+const PROXY = 'https://api.allorigins.win/get?url=';
+const BASE_STATS_LIST = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsList';
+const BASE_STATS_DATA = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
 
-function destroyCharts() {
-  Object.values(charts).forEach(c => c && c.destroy());
-  charts = {};
+function log(msg, cls = '') {
+  const r = document.getElementById('result');
+  r.innerHTML += `<span class="${cls}">${escHtml(msg)}</span>\n`;
+  r.scrollTop = r.scrollHeight;
 }
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function clear() { document.getElementById('result').innerHTML = ''; }
 
-// ===========================
-// e-Stat API CONFIG
-// ===========================
-const ESTAT_BASE = 'https://api.e-stat.go.jp/rest/3.0/app/json/getStatsData';
-
-// 都道府県コードマップ
-const PREF_NAMES = {
-  '01':'北海道','02':'青森県','03':'岩手県','04':'宮城県','05':'秋田県',
-  '06':'山形県','07':'福島県','08':'茨城県','09':'栃木県','10':'群馬県',
-  '11':'埼玉県','12':'千葉県','13':'東京都','14':'神奈川県','15':'新潟県',
-  '16':'富山県','17':'石川県','18':'福井県','19':'山梨県','20':'長野県',
-  '21':'岐阜県','22':'静岡県','23':'愛知県','24':'三重県','25':'滋賀県',
-  '26':'京都府','27':'大阪府','28':'兵庫県','29':'奈良県','30':'和歌山県',
-  '31':'鳥取県','32':'島根県','33':'岡山県','34':'広島県','35':'山口県',
-  '36':'徳島県','37':'香川県','38':'愛媛県','39':'高知県','40':'福岡県',
-  '41':'佐賀県','42':'長崎県','43':'熊本県','44':'大分県','45':'宮崎県',
-  '46':'鹿児島県','47':'沖縄県'
-};
-
-// e-Statのエリアコードは5桁 (都道府県: XX000)
-function toAreaCode(prefCode) {
-  return prefCode.padStart(2, '0') + '000';
-}
-
-// ===========================
-// e-Stat API FETCH (低レベル)
-// CORSプロキシ経由で呼び出す
-// ===========================
-const CORS_PROXY = 'https://api.allorigins.win/get?url=';
-
-async function fetchEstatData(apiKey, statsId, params = {}) {
-  const target = new URL(ESTAT_BASE);
-  target.searchParams.set('appId', apiKey);
-  target.searchParams.set('statsDataId', statsId);
-  target.searchParams.set('metaGetFlg', 'N');
-  target.searchParams.set('cntGetFlg', 'N');
-  target.searchParams.set('sectionHeaderFlg', '1');
-  Object.entries(params).forEach(([k, v]) => target.searchParams.set(k, v));
-
-  let json = null;
+async function apiFetch(url) {
   try {
-    const res = await fetch(target.toString(), { signal: AbortSignal.timeout(8000) });
-    const text = await res.text();
-    json = JSON.parse(text);
-  } catch (directErr) {
-    try {
-      const proxyUrl = CORS_PROXY + encodeURIComponent(target.toString());
-      const res2 = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
-      const wrapper = await res2.json();
-      if (!wrapper.contents) throw new Error('プロキシからレスポンスなし');
-      json = JSON.parse(wrapper.contents);
-    } catch (proxyErr) {
-      throw new Error(
-        `e-Stat APIへの接続に失敗しました。\n` +
-        `直接接続エラー: ${directErr.message}\n` +
-        `プロキシ経由エラー: ${proxyErr.message}\n\n` +
-        `【対処法】\n` +
-        `① ファイルをローカルで開いている場合は、簡易HTTPサーバー経由で開いてください\n` +
-        `  例: python3 -m http.server 8080 → http://localhost:8080 でアクセス\n` +
-        `② ブラウザの拡張機能「CORS Unblock」などを使用する\n` +
-        `③ APIキーが正しいか確認: https://www.e-stat.go.jp/mypage/`
-      );
-    }
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    return await res.json();
+  } catch (e) {
+    // CORSプロキシ経由
+    const res2 = await fetch(PROXY + encodeURIComponent(url), { signal: AbortSignal.timeout(20000) });
+    const w = await res2.json();
+    return JSON.parse(w.contents);
   }
+}
 
-  const result = json?.GET_STATS_DATA?.RESULT;
-  if (result) {
-    const status = Number(result.STATUS);
-    if (status !== 0) {
-      if (status === 100) {
-        throw new Error(
-          `APIキー認証エラー (STATUS=100)\n` +
-          `入力したAPIキーが e-Stat に認識されていません。\n` +
-          `・全角スペースや余分な文字が混入していないか確認してください\n` +
-          `・e-Stat マイページでキーを再確認: https://www.e-stat.go.jp/mypage/\n` +
-          `・発行直後は数分かかる場合があります`
-        );
-      }
-      throw new Error(`e-Stat APIエラー (STATUS=${status}): ${result.ERROR_MSG || '不明なエラー'}`);
+async function searchStats() {
+  clear();
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const keyword = document.getElementById('keyword').value.trim();
+  const statsCode = document.getElementById('statsCode').value.trim();
+  if (!apiKey) { log('⚠ APIキーを入力してください', 'err'); return; }
+
+  log(`🔍 「${keyword}」で統計表を検索中...`, 'info');
+
+  const url = new URL(BASE_STATS_LIST);
+  url.searchParams.set('appId', apiKey);
+  url.searchParams.set('lang', 'J');
+  url.searchParams.set('searchWord', keyword);
+  url.searchParams.set('searchKind', '1');
+  url.searchParams.set('limit', '20');
+  if (statsCode) url.searchParams.set('statsCode', statsCode);
+
+  try {
+    const json = await apiFetch(url.toString());
+    const result = json?.GET_STATS_LIST?.RESULT;
+    if (Number(result?.STATUS) !== 0) {
+      log(`❌ エラー: ${result?.ERROR_MSG}`, 'err'); return;
     }
+    const tables = json?.GET_STATS_LIST?.DATALIST_INF?.TABLE_INF;
+    const list = Array.isArray(tables) ? tables : (tables ? [tables] : []);
+    log(`✅ ${list.length}件ヒット\n`, 'ok');
+    list.forEach(t => {
+      const id = t['@id'];
+      const name = t.STATISTICS_NAME || '';
+      const title = t.TITLE?.['$'] || t.TITLE || '';
+      const cycle = t.CYCLE || '';
+      const updated = t.UPDATED_DATE || '';
+      log(`📋 ID: ${id}`, 'ok');
+      log(`   統計名: ${name}`);
+      log(`   表題: ${title}`);
+      log(`   周期: ${cycle}  更新: ${updated}\n`);
+    });
+  } catch (e) {
+    log(`❌ 取得失敗: ${e.message}`, 'err');
   }
-
-  const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
-  return values || null;
 }
 
-// ページングで全件取得（cdCat02等が効かない統計表用）
-async function fetchEstatAllPages(apiKey, statsId, params = {}, maxPages = 20) {
-  let allValues = [];
-  let startPosition = 1;
-  for (let page = 0; page < maxPages; page++) {
-    let vals = null;
-    try {
-      const pageParams = { ...params, limit: 100, startPosition };
-      vals = await fetchEstatData(apiKey, statsId, pageParams);
-    } catch (e) {
-      // STATUS=1（該当なし）= 最終ページ超えなので正常終了
-      break;
+async function inspectTable() {
+  clear();
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const statsId = document.getElementById('statsDataId').value.trim();
+  if (!apiKey || !statsId) { log('⚠ APIキーと統計表IDを入力してください', 'err'); return; }
+
+  log(`🔬 ${statsId} の構造を確認中...`, 'info');
+
+  const url = new URL(BASE_STATS_DATA);
+  url.searchParams.set('appId', apiKey);
+  url.searchParams.set('statsDataId', statsId);
+  url.searchParams.set('metaGetFlg', 'N');
+  url.searchParams.set('cntGetFlg', 'Y');
+  url.searchParams.set('limit', '5');
+
+  try {
+    const json = await apiFetch(url.toString());
+    const result = json?.GET_STATS_DATA?.RESULT;
+    if (Number(result?.STATUS) !== 0) {
+      log(`❌ STATUS=${result?.STATUS}: ${result?.ERROR_MSG}`, 'err'); return;
     }
-    if (!vals || vals.length === 0) break;
-    allValues = allValues.concat(vals);
-    if (vals.length < 100) break; // 最終ページ
-    startPosition += 100;
+    const total = json?.GET_STATS_DATA?.STATISTICAL_DATA?.RESULT_INF?.TOTAL_NUMBER;
+    log(`✅ 総件数: ${total}件\n`, 'ok');
+
+    const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
+    const list = Array.isArray(values) ? values : (values ? [values] : []);
+    if (list.length > 0) {
+      log('── サンプルデータ（最大5件） ──', 'info');
+      list.forEach((v, i) => log(`[${i}] ${JSON.stringify(v)}`));
+      log('\n── 各属性の一意な値 ──', 'info');
+      const keys = Object.keys(list[0]).filter(k => k !== '$' && k !== '@unit');
+      keys.forEach(k => {
+        const vals = [...new Set(list.map(v => v[k]))];
+        log(`  ${k}: ${JSON.stringify(vals)}`);
+      });
+    }
+    log('\n💡 都道府県がどの属性に入っているかをチェックし、② でテストしてください', 'info');
+  } catch (e) {
+    log(`❌ 取得失敗: ${e.message}`, 'err');
   }
-  return allValues;
 }
 
-// 年次データを集計するヘルパー
-function aggregateByYear(values, maxYears = 10) {
-  const byYear = {};
-  values.forEach(v => {
-    const t = v['@time'] || v['@TIME'] || '';
-    const year = t.substring(0, 4);
-    const val = v['$'];
-    if (year && val && val !== '-' && val !== '***' && val !== '…') {
-      const num = parseFloat(val);
-      if (!isNaN(num)) {
-        if (!byYear[year]) byYear[year] = [];
-        byYear[year].push(num);
-      }
-    }
-  });
-  const years = Object.keys(byYear).sort().slice(-maxYears);
-  const data = years.map(y => {
-    const arr = byYear[y];
-    return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length * 10) / 10;
-  });
-  return { years: years.map(Number), data };
-}
+async function testPrefFilter() {
+  clear();
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const statsId = document.getElementById('statsDataId').value.trim();
+  const prefCode = document.getElementById('prefCode').value.trim().padStart(2,'0');
+  if (!apiKey || !statsId) { log('⚠ APIキーと統計表IDを入力してください', 'err'); return; }
 
-// 都道府県コードにマッチするかを全属性で確認するヘルパー
-function matchesPref(v, prefCode, areaCode) {
-  const prefNum2 = prefCode.padStart(2, '0');
-  const prefNum5 = areaCode;
-  const prefNumInt = String(parseInt(prefCode));
-  return Object.values(v).filter(Boolean).map(String).some(a =>
-    a === prefNum5 || a === prefNum2 || a === prefNumInt
-  );
-}
+  log(`🧪 ${statsId} で都道府県コード ${prefCode} のフィルタをテスト中...`, 'info');
 
-// ===========================
-// REAL DATA PROCESSOR
-// ===========================
-async function fetchRealData(apiKey, prefCode) {
-  const areaCode = toAreaCode(prefCode); // 例: "04000"
-  const prefName = PREF_NAMES[prefCode];
-  const errors = [];
-  const result = {
-    isDemo: false,
-    prefCode,
-    prefName,
-    rateYears: [2016,2017,2018,2019,2020,2021,2022,2023,2024,2025],
-    rateData:  [0.80, 0.82, 0.85, 0.84, 0.83, 0.80, 0.88, 1.05, 1.65, 1.90],
-    currentRate: 1.90,
-    priceYears: [], priceData: [], currentPriceIdx: null, priceChange: null,
-    popYears:   [], popData:   [], currentPop: null, popChange: null,
-    landYears:  [], landData:  [], currentLand: null,
-    vacancyRate: null,
-    supplyGrowth: null,
-    affordabilityRatio: null,
+  // 試すコードパターン
+  const patterns = {
+    'cdArea (XX000)': prefCode + '000',
+    '@cat01': prefCode,
+    '@cat02 (000PPOO 8桁)': '00000' + prefCode + '00',
+    '@cat03': prefCode,
+    '@tab': prefCode,
   };
 
-  // ── 1. 人口推計 都道府県別・総人口（各年10月1日現在）
-  // 0003448233 = 「都道府県別人口の割合－総人口」（人口推計）
+  for (const [label, code] of Object.entries(patterns)) {
+    // まず全件からサンプルを取って該当するか確認
+  }
+
+  // 全件100件取得してどの属性に都道府県コードが入るか確認
+  const url = new URL(BASE_STATS_DATA);
+  url.searchParams.set('appId', apiKey);
+  url.searchParams.set('statsDataId', statsId);
+  url.searchParams.set('metaGetFlg', 'N');
+  url.searchParams.set('cntGetFlg', 'N');
+  url.searchParams.set('limit', '100');
+
   try {
-    const vals = await fetchEstatData(apiKey, '0003448233', { limit: 1000 });
-    if (vals && vals.length > 0) {
-      const prefVals = vals.filter(v => matchesPref(v, prefCode, areaCode));
-      const target = prefVals.length > 0 ? prefVals : vals;
-      const { years, data } = aggregateByYear(target, 12);
-      if (years.length >= 2) {
-        result.popYears   = years;
-        result.popData    = data;
-        result.currentPop = data[data.length - 1];
-        result.popChange  = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(2);
-      } else {
-        errors.push(`人口データ: 年次データ${years.length}件のみ`);
-      }
-    } else {
-      errors.push('人口データ: レスポンスが空');
+    const json = await apiFetch(url.toString());
+    const result = json?.GET_STATS_DATA?.RESULT;
+    if (Number(result?.STATUS) !== 0) {
+      log(`❌ STATUS=${result?.STATUS}: ${result?.ERROR_MSG}`, 'err'); return;
+    }
+    const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
+    const list = Array.isArray(values) ? values : (values ? [values] : []);
+
+    log(`取得件数: ${list.length}件\n`, 'ok');
+
+    // 各属性でprefCodeと一致するものを探す
+    const p2 = prefCode;
+    const p5 = prefCode + '000';
+    const p8 = '00000' + prefCode + '00';
+
+    const keys = list.length > 0 ? Object.keys(list[0]).filter(k => k !== '$') : [];
+    log('── 都道府県コード検索結果 ──', 'info');
+    let found = false;
+    keys.forEach(k => {
+      const allVals = [...new Set(list.map(v => v[k]))];
+      [p2, p5, p8].forEach(code => {
+        if (allVals.includes(code)) {
+          log(`✅ ${k}="${code}" にヒット！ → cdパラメータ: cd${k.replace('@','').replace(/^./,c=>c.toUpperCase())}="${code}"`, 'ok');
+          found = true;
+        }
+      });
+    });
+    if (!found) {
+      log('⚠ 最初の100件に都道府県コードが見つかりませんでした', 'err');
+      log('── 全属性値（各最大10件） ──', 'info');
+      keys.forEach(k => {
+        const allVals = [...new Set(list.map(v => v[k]))].slice(0,10);
+        log(`  ${k}: ${JSON.stringify(allVals)}`);
+      });
+      log('\n💡 ページングが必要か、別の統計表IDを試してください', 'info');
     }
   } catch (e) {
-    errors.push('人口データ: ' + e.message);
-  }
-
-  // ── 2. 地価変動率
-  // 0003348814: @cat02="00000PP00"（PP=都道府県2桁）で都道府県識別
-  // cdCat02パラメータ非対応のためページング全件取得→JS側フィルタ
-  let landOk = false;
-  try {
-    const cat02target = '00000' + prefCode.padStart(2,'0') + '00';  // 8桁例: "00000700"
-    const allVals = await fetchEstatAllPages(apiKey, '0003348814', { cdCat01: '00005020' }, 15);
-    const prefVals = allVals.filter(v => v['@cat02'] === cat02target);
-    if (prefVals.length >= 2) {
-      const { years, data } = aggregateByYear(prefVals, 10);
-      if (years.length >= 2) {
-        result.landYears   = years;
-        result.landData    = data;
-        result.currentLand = data[data.length - 1];
-        landOk = true;
-      }
-    }
-  } catch (e) { /* ignore */ }
-  if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
-
-  // ── 3. 建築着工統計 都道府県別着工戸数
-  // 0003119713 = 建築着工統計 【住宅】都道府県別着工戸数（@area に都道府県コード）
-  let supplyOk = false;
-  try {
-    const vals = await fetchEstatData(apiKey, '0003119713', {
-      cdArea: areaCode,  // "04000" 形式
-      limit: 500,
-    });
-    if (vals && vals.length >= 2) {
-      const { years, data } = aggregateByYear(vals, 10);
-      if (years.length >= 2) {
-        result.priceYears      = years;
-        result.priceData       = data;
-        result.currentPriceIdx = data[data.length - 1];
-        result.priceChange     = +((data[data.length-1] / data[data.length-2] - 1) * 100).toFixed(1);
-        result.supplyGrowth    = result.priceChange;
-        supplyOk = true;
-      }
-    }
-  } catch (e) { /* ignore */ }
-  if (!supplyOk) errors.push('着工データ: 取得できませんでした（スコアに影響しません）');
-
-  // 人口データが取れていれば分析続行
-  const hasEnoughData = result.popYears.length >= 2;
-  if (!hasEnoughData) {
-    throw new Error(
-      `${prefName}のデータを e-Stat から取得できませんでした。\n\n` +
-      `【各データの取得状況】\n${errors.join('\n')}\n\n` +
-      `・APIキーを確認: https://www.e-stat.go.jp/mypage/\n` +
-      `・しばらく待ってから再試行してください`
-    );
-  }
-
-  // 部分取得時のデフォルト補完
-  if (result.vacancyRate === null) result.vacancyRate = 13.6;
-  if (result.supplyGrowth === null) result.supplyGrowth = 0;
-  if (result.affordabilityRatio === null) {
-    result.affordabilityRatio = (result.popChange !== null && result.popChange > 0) ? 9.5 : 7.2;
-  }
-  if (result.currentLand === null) result.currentLand = 0;
-  if (result.landYears.length === 0) { result.landYears = [2024]; result.landData = [0]; }
-  if (result.priceYears.length === 0) { result.priceYears = [2024]; result.priceData = [0]; }
-
-  if (errors.length > 0) {
-    result.partialWarning = `一部データが取得できませんでした:\n${errors.join('\n')}`;
-  }
-
-  return result;
-}
-
-
-// ===========================
-// SCORING ENGINE
-// ===========================
-function calcScore(data) {
-  const indicators = [];
-
-  // 1. 不動産価格トレンド (高いほど注意)
-  const priceTrend = data.priceChange;
-  let priceScore, priceStatus, priceDesc;
-  if (priceTrend > 8) {
-    priceScore = 10; priceStatus = 'bad';
-    priceDesc = `価格が年率+${priceTrend}%上昇中。バブル警戒域`;
-  } else if (priceTrend > 4) {
-    priceScore = 20; priceStatus = 'caution';
-    priceDesc = `価格が年率+${priceTrend}%上昇。やや過熱気味`;
-  } else if (priceTrend > 0) {
-    priceScore = 30; priceStatus = 'good';
-    priceDesc = `価格が緩やか(+${priceTrend}%)に上昇。安定圏`;
-  } else {
-    priceScore = 25; priceStatus = 'caution';
-    priceDesc = `価格が下落傾向(${priceTrend}%)。底値圏の可能性`;
-  }
-  indicators.push({ name: '価格トレンド', value: `${priceTrend > 0 ? '+' : ''}${priceTrend}%`, score: priceScore, max: 30, status: priceStatus, desc: priceDesc });
-
-  // 2. 人口動態 (増加地域は資産価値維持)
-  const popTrend = data.popChange;
-  let popScore, popStatus, popDesc;
-  if (popTrend > 0.5) {
-    popScore = 20; popStatus = 'good';
-    popDesc = `人口増加率+${popTrend}%/年。需要が堅調で資産価値安定`;
-  } else if (popTrend > -0.5) {
-    popScore = 15; popStatus = 'caution';
-    popDesc = `人口微変動(${popTrend}%/年)。中長期の需要見極めが必要`;
-  } else {
-    popScore = 5; popStatus = 'bad';
-    popDesc = `人口減少(${popTrend}%/年)。将来の需要低下リスクあり`;
-  }
-  indicators.push({ name: '人口動態', value: `${popTrend > 0 ? '+' : ''}${popTrend}%`, score: popScore, max: 20, status: popStatus, desc: popDesc });
-
-  // 3. 地価変動 (住宅地)
-  const land = data.currentLand;
-  let landScore, landStatus, landDesc;
-  if (land > 5) {
-    landScore = 8; landStatus = 'bad';
-    landDesc = `地価が+${land}%上昇。土地コストが高騰している`;
-  } else if (land > 1) {
-    landScore = 15; landStatus = 'caution';
-    landDesc = `地価が+${land}%と緩やかに上昇。標準的な水準`;
-  } else if (land > -1) {
-    landScore = 18; landStatus = 'good';
-    landDesc = `地価がほぼ横ばい(${land}%)。安定した市場環境`;
-  } else {
-    landScore = 12; landStatus = 'caution';
-    landDesc = `地価下落(${land}%)。底値でのチャンスか慎重判断を`;
-  }
-  indicators.push({ name: '地価変動率', value: `${land > 0 ? '+' : ''}${land}%`, score: landScore, max: 20, status: landStatus, desc: landDesc });
-
-  // 4. 金利水準
-  const rate = data.currentRate;
-  let rateScore, rateStatus, rateDesc;
-  if (rate < 0.5) {
-    rateScore = 18; rateStatus = 'good';
-    rateDesc = `変動金利${rate}%。超低金利でローン負担が軽い`;
-  } else if (rate < 1.2) {
-    rateScore = 15; rateStatus = 'good';
-    rateDesc = `変動金利${rate}%。まだ低金利水準。利上げに要注意`;
-  } else if (rate < 2.0) {
-    rateScore = 8; rateStatus = 'caution';
-    rateDesc = `変動金利${rate}%。金利上昇局面。固定との比較を`;
-  } else {
-    rateScore = 3; rateStatus = 'bad';
-    rateDesc = `変動金利${rate}%。高金利。総返済額が大幅増加する`;
-  }
-  indicators.push({ name: '住宅ローン金利', value: `${rate}%`, score: rateScore, max: 20, status: rateStatus, desc: rateDesc });
-
-  // 5. 供給・空室率
-  const vacancy = data.vacancyRate;
-  let vacScore, vacStatus, vacDesc;
-  if (vacancy > 20) {
-    vacScore = 3; vacStatus = 'bad';
-    vacDesc = `空室率${vacancy}%。供給過剰。価格下落リスクが高い`;
-  } else if (vacancy > 13) {
-    vacScore = 6; vacStatus = 'caution';
-    vacDesc = `空室率${vacancy}%。やや供給過多。交渉余地がある`;
-  } else {
-    vacScore = 10; vacStatus = 'good';
-    vacDesc = `空室率${vacancy}%。適正水準。需給バランスが良好`;
-  }
-  indicators.push({ name: '空室率（推計）', value: `${vacancy}%`, score: vacScore, max: 10, status: vacStatus, desc: vacDesc });
-
-  const total = indicators.reduce((a,b) => a + b.score, 0);
-
-  return { total, indicators };
-}
-
-// ===========================
-// VERDICT TEXT
-// ===========================
-function getVerdict(score, data) {
-  if (score >= 75) {
-    return {
-      cls: 'good',
-      text: '✓ 購入好機と判定',
-      reason: `${data.prefName}の市場は現在、比較的良好な購入環境です。価格トレンドが安定し、人口動態も良好。金利水準と地価を考慮すると、長期保有を前提とした購入は合理的な判断と考えられます。ただし、個人の資金計画・立地・物件状態の精査は必須です。`
-    };
-  } else if (score >= 50) {
-    return {
-      cls: 'caution',
-      text: '△ 慎重判断を推奨',
-      reason: `${data.prefName}の市場にはプラス・マイナス両方の要素が混在しています。特に価格上昇トレンドや金利動向に注意が必要です。物件選定と資金計画を入念に行い、複数物件の比較検討と専門家への相談を強くお勧めします。`
-    };
-  } else {
-    return {
-      cls: 'bad',
-      text: '✗ 時期の見直しを推奨',
-      reason: `現時点での${data.prefName}の市場環境は、購入に不利な要素が重なっています。価格過熱・金利上昇・人口減少などのリスクを複合的に考慮すると、購入の先送りまたは他地域との比較検討が賢明です。半年〜1年後の市場再評価を推奨します。`
-    };
+    log(`❌ 取得失敗: ${e.message}`, 'err');
   }
 }
-
-// ===========================
-// RENDER
-// ===========================
-function renderAll(data) {
-  const { total, indicators } = calcScore(data);
-  const verdict = getVerdict(total, data);
-
-  // ---- Verdict ----
-  const scoreEl = document.getElementById('scoreNumber');
-  scoreEl.textContent = total;
-  scoreEl.className = 'score-number ' + verdict.cls;
-
-  document.getElementById('prefLabel').textContent = data.prefName;
-  document.getElementById('demoBadge').style.display = 'none';
-
-  // 部分取得警告
-  if (data.partialWarning) {
-    showError('一部データが取得できませんでした（利用可能なデータのみ表示）', data.partialWarning);
-  }
-
-  const vt = document.getElementById('verdictText');
-  vt.textContent = verdict.text;
-  vt.className = 'verdict-text ' + verdict.cls;
-
-  document.getElementById('verdictReason').textContent = verdict.reason;
-
-  // ---- Indicators ----
-  const grid = document.getElementById('indicatorGrid');
-  grid.innerHTML = indicators.map(ind => {
-    const pct = Math.round((ind.score / ind.max) * 100);
-    return `
-      <div class="indicator-card">
-        <div class="indicator-name">${ind.name}</div>
-        <div class="indicator-value ${ind.status}">${ind.value}</div>
-        <div class="indicator-bar-track">
-          <div class="indicator-bar-fill ${ind.status}" style="width:${pct}%"></div>
-        </div>
-        <div class="indicator-desc">${ind.desc}<br><span style="color:var(--ink);font-weight:bold">${ind.score}/${ind.max}pt</span></div>
-      </div>`;
-  }).join('');
-
-  // ---- Charts ----
-  destroyCharts();
-
-  const chartDefaults = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
-    scales: {
-      x: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { family: "'DM Mono', monospace", size: 10 }, color: '#7a7468' } },
-      y: { grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { family: "'DM Mono', monospace", size: 10 }, color: '#7a7468' } }
-    }
-  };
-
-  // 不動産価格指数
-  charts.price = new Chart(document.getElementById('priceChart'), {
-    type: 'line',
-    data: {
-      labels: data.priceYears,
-      datasets: [{
-        data: data.priceData,
-        borderColor: '#c8401a',
-        backgroundColor: 'rgba(200,64,26,0.08)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointBackgroundColor: '#c8401a',
-      }]
-    },
-    options: { ...chartDefaults }
-  });
-
-  // 人口
-  charts.pop = new Chart(document.getElementById('popChart'), {
-    type: 'bar',
-    data: {
-      labels: data.popYears,
-      datasets: [{
-        data: data.popData,
-        backgroundColor: (ctx) => {
-          const v = ctx.dataset.data;
-          const cur = v[ctx.dataIndex];
-          const prev = v[ctx.dataIndex - 1] || cur;
-          return cur >= prev ? 'rgba(42,92,63,0.7)' : 'rgba(200,64,26,0.7)';
-        },
-        borderWidth: 0,
-      }]
-    },
-    options: { ...chartDefaults }
-  });
-
-  // 地価変動
-  charts.land = new Chart(document.getElementById('landChart'), {
-    type: 'bar',
-    data: {
-      labels: data.landYears,
-      datasets: [{
-        data: data.landData,
-        backgroundColor: data.landData.map(v => v >= 0 ? 'rgba(42,92,63,0.75)' : 'rgba(200,64,26,0.75)'),
-        borderWidth: 0,
-      }]
-    },
-    options: {
-      ...chartDefaults,
-      plugins: { ...chartDefaults.plugins, annotation: {} },
-      scales: {
-        ...chartDefaults.scales,
-        y: { ...chartDefaults.scales.y, suggestedMin: -3, suggestedMax: 8 }
-      }
-    }
-  });
-
-  // 金利
-  charts.rate = new Chart(document.getElementById('rateChart'), {
-    type: 'line',
-    data: {
-      labels: data.rateYears,
-      datasets: [{
-        data: data.rateData,
-        borderColor: '#b8963e',
-        backgroundColor: 'rgba(184,150,62,0.08)',
-        fill: true,
-        tension: 0.3,
-        pointRadius: 4,
-        pointBackgroundColor: '#b8963e',
-      }]
-    },
-    options: {
-      ...chartDefaults,
-      scales: {
-        ...chartDefaults.scales,
-        y: { ...chartDefaults.scales.y, suggestedMin: 0, suggestedMax: 3 }
-      }
-    }
-  });
-
-  // ---- Context Cards ----
-  const affordIdx = data.affordabilityRatio;
-  const supplyGrowth = data.supplyGrowth;
-  const contextItems = [
-    { cat: '不動産価格指数(最新)', val: `${data.currentPriceIdx}`, trend: `前年比 ${data.priceChange > 0 ? '+' : ''}${data.priceChange}%`, trendCls: data.priceChange > 3 ? 'up' : data.priceChange < 0 ? 'down' : '' },
-    { cat: '人口（千人・直近）', val: `${Math.round(data.currentPop).toLocaleString()}`, trend: `前年比 ${data.popChange > 0 ? '+' : ''}${data.popChange}%/年`, trendCls: data.popChange > 0 ? 'down' : 'up' },
-    { cat: '住宅地 地価変動率', val: `${data.currentLand > 0 ? '+' : ''}${data.currentLand}%`, trend: '前年比・住宅地平均', trendCls: data.currentLand > 3 ? 'up' : data.currentLand < 0 ? 'down' : '' },
-    { cat: '変動住宅ローン金利', val: `${data.currentRate}%`, trend: '最優遇金利（参考値）', trendCls: data.currentRate > 1.5 ? 'up' : '' },
-    { cat: '年収倍率（推計）', val: `${affordIdx}倍`, trend: '中央値世帯年収比', trendCls: affordIdx > 10 ? 'up' : affordIdx < 7 ? 'down' : '' },
-    { cat: '新築供給増減率', val: `${supplyGrowth > 0 ? '+' : ''}${supplyGrowth}%`, trend: '前年比・新築着工数', trendCls: supplyGrowth > 5 ? 'up' : supplyGrowth < -5 ? 'down' : '' },
-  ];
-
-  document.getElementById('contextGrid').innerHTML = contextItems.map(c => `
-    <div class="context-card">
-      <div class="cat">${c.cat}</div>
-      <div class="val">${c.val}</div>
-      <div class="trend ${c.trendCls}">${c.trend}</div>
-    </div>`).join('');
-
-  // ---- Strategy Cards ----
-  const strategies = getStrategies(data, total);
-  document.getElementById('strategyCards').innerHTML = strategies.map((s, i) => `
-    <div class="strategy-card">
-      <h4>${s.title}</h4>
-      <p>${s.body}</p>
-      <div class="number">${String(i+1).padStart(2,'0')}</div>
-    </div>`).join('');
-
-  // ---- Show Sections ----
-  document.getElementById('verdictSection').classList.add('visible');
-  document.getElementById('chartsSection').classList.add('visible');
-  document.getElementById('contextSection').classList.add('visible');
-  document.getElementById('strategySection').classList.add('visible');
-}
-
-function getStrategies(data, score) {
-  const strategies = [];
-
-  if (score >= 70) {
-    strategies.push({
-      title: '🏠 実需購入のベストタイミングを逃さない',
-      body: '現在の市場環境は比較的購入に有利。ライフプランと照らし合わせ、自己居住目的であれば積極的な物件探しを推奨。物件は3〜5件以上の比較を必須とし、周辺相場を徹底調査する。'
-    });
-  } else {
-    strategies.push({
-      title: '⏳ ウォッチリストを作り市場を継続観察',
-      body: '今すぐ購入より、希望エリアの相場観を養う期間として活用。3〜6ヶ月の価格変動をトラッキングし、下落転換のサインを見逃さないようにする。ポータルサイトのアラート設定が有効。'
-    });
-  }
-
-  if (data.currentRate < 1.2) {
-    strategies.push({
-      title: '📊 固定 vs 変動の試算を今すぐ行う',
-      body: `現在の変動金利は${data.currentRate}%と低水準だが、日銀の利上げ局面では固定金利との比較が重要。35年固定での総返済額、変動が2%まで上がった場合のリスクシミュレーションを事前に実施する。`
-    });
-  } else {
-    strategies.push({
-      title: '🔒 固定金利でリスクヘッジを検討',
-      body: `金利が${data.currentRate}%まで上昇。変動金利の恩恵が薄れており、長期固定（フラット35等）で返済額を確定させる戦略が有効な局面。借入期間・頭金比率の最適化も重要。`
-    });
-  }
-
-  if (data.popChange > 0) {
-    strategies.push({
-      title: '📈 駅近・利便性重視で資産性を確保',
-      body: `${data.prefName}は人口増加傾向。利便性の高いエリア（主要駅徒歩10分以内）への投資は資産価値が維持されやすい。将来の売却・賃貸転用も想定し、管理組合・修繕積立金の状況を必ず確認する。`
-    });
-  } else {
-    strategies.push({
-      title: '🎯 希少エリア・再開発地域に絞って検討',
-      body: `${data.prefName}では人口減少が続くため、需要が集中する中心部・再開発エリアへの選択と集中が重要。郊外物件は購入価格が安くても将来の流動性リスクが高い。出口戦略を必ず描いてから購入判断する。`
-    });
-  }
-
-  strategies.push({
-    title: '💰 頭金・諸費用の最適配分を設計する',
-    body: '購入価格の20%以上を頭金として用意できると、金利負担と審査の有利性が高まる。物件価格の7〜10%程度を諸費用（仲介手数料・登記費用・ローン手数料等）として別途確保が必須。生活防衛資金（6ヶ月分の生活費）は手をつけない。'
-  });
-
-  return strategies.slice(0, 3);
-}
-
-// ===========================
-// MAIN FETCH
-// ===========================
-async function fetchData() {
-  const apiKey = document.getElementById('apiKey').value.trim();
-  const prefCode = document.getElementById('prefSelect').value;
-
-  if (!prefCode) {
-    showError('都道府県を選択してください。');
-    return;
-  }
-
-  if (!apiKey) {
-    showError('e-Stat API キーを入力してください。', 'APIキーは https://www.e-stat.go.jp/api/ から無料取得できます。');
-    return;
-  }
-
-  hideError();
-  showLoading(true);
-  document.getElementById('fetchBtn').disabled = true;
-
-  // 結果エリアを非表示にリセット
-  ['verdictSection','chartsSection','contextSection','strategySection'].forEach(id => {
-    document.getElementById(id).classList.remove('visible');
-  });
-
-  try {
-    const data = await fetchRealData(apiKey, prefCode);
-    renderAll(data);
-    setTimeout(() => {
-      document.getElementById('verdictSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-  } catch(e) {
-    console.error(e);
-    const msg = e.message || String(e);
-    // 1行目をサマリー、残りを詳細として分割
-    const lines = msg.split('\n');
-    const summary = lines[0];
-    const detail = lines.slice(1).join('\n').trim() || null;
-    showError(summary, detail);
-  } finally {
-    showLoading(false);
-    document.getElementById('fetchBtn').disabled = false;
-  }
-}
-
-function showLoading(b) {
-  document.getElementById('loadingOverlay').classList.toggle('active', b);
-}
-
-function showError(msg, detail) {
-  const el = document.getElementById('errorMsg');
-  document.getElementById('errorMsgText').textContent = '⚠ ' + msg;
-  const detailEl = document.getElementById('errorDetail');
-  if (detail) {
-    detailEl.textContent = detail;
-    detailEl.classList.add('visible');
-  } else {
-    detailEl.textContent = '';
-    detailEl.classList.remove('visible');
-  }
-  el.classList.add('visible');
-}
-
-function hideError() {
-  document.getElementById('errorMsg').classList.remove('visible');
-  document.getElementById('errorDetail').classList.remove('visible');
-}
-
-// Enter key support
-document.getElementById('prefSelect').addEventListener('keydown', e => {
-  if (e.key === 'Enter') fetchData();
-});
 </script>
 </body>
 </html>
