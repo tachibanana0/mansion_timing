@@ -922,13 +922,18 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
 }
 
 // ページングで全件取得（cdCat02等が効かない統計表用）
-// maxPages: 取得上限ページ数（1ページ=100件）
 async function fetchEstatAllPages(apiKey, statsId, params = {}, maxPages = 20) {
   let allValues = [];
   let startPosition = 1;
   for (let page = 0; page < maxPages; page++) {
-    const pageParams = { ...params, limit: 100, startPosition };
-    const vals = await fetchEstatData(apiKey, statsId, pageParams);
+    let vals = null;
+    try {
+      const pageParams = { ...params, limit: 100, startPosition };
+      vals = await fetchEstatData(apiKey, statsId, pageParams);
+    } catch (e) {
+      // STATUS=1（該当なし）= 最終ページ超えなので正常終了
+      break;
+    }
     if (!vals || vals.length === 0) break;
     allValues = allValues.concat(vals);
     if (vals.length < 100) break; // 最終ページ
@@ -1016,13 +1021,13 @@ async function fetchRealData(apiKey, prefCode) {
   }
 
   // ── 2. 地価変動率
+  // 0003348814: @cat02="00000PP00"（PP=都道府県2桁）で都道府県識別
+  // cdCat02パラメータ非対応のためページング全件取得→JS側フィルタ
   let landOk = false;
   try {
-    const cat02target = '000' + prefCode.padStart(2,'0') + '00';
+    const cat02target = '00000' + prefCode.padStart(2,'0') + '00';  // 8桁例: "00000700"
     const allVals = await fetchEstatAllPages(apiKey, '0003348814', { cdCat01: '00005020' }, 15);
     const prefVals = allVals.filter(v => v['@cat02'] === cat02target);
-    const timeSet = [...new Set(allVals.map(v => v['@time']))].slice(0,5);
-    errors.push(`[地価PAGE] 全件=${allVals.length} cat02=${cat02target}ヒット=${prefVals.length} times=${JSON.stringify(timeSet)}`);
     if (prefVals.length >= 2) {
       const { years, data } = aggregateByYear(prefVals, 10);
       if (years.length >= 2) {
@@ -1030,13 +1035,9 @@ async function fetchRealData(apiKey, prefCode) {
         result.landData    = data;
         result.currentLand = data[data.length - 1];
         landOk = true;
-      } else {
-        errors.push(`[地価PAGE] years=${years.length}のみ prefVals sample=${JSON.stringify(prefVals[0])}`);
       }
     }
-  } catch (e) {
-    errors.push('[地価PAGE] エラー: ' + e.message.substring(0,120));
-  }
+  } catch (e) { /* ignore */ }
   if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
 
   // ── 3. 建築着工統計 都道府県別着工戸数
