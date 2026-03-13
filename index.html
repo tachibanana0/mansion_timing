@@ -1002,37 +1002,19 @@ async function fetchRealData(apiKey, prefCode) {
     errors.push('人口データ: ' + e.message);
   }
 
-  // ── 2. 地価変動率デバッグ
+  // ── 2. 地価変動率デバッグ：cdCat02なしで全取得してcat02の実値を確認
   let landOk = false;
   try {
-    const cat02 = '000' + prefCode.padStart(2,'0') + '00';
-    const vals = await fetchEstatData(apiKey, '0003348814', {
-      cdCat01: '00005020',
-      cdCat02: cat02,
-      limit: 200,
-    });
-    if (vals && vals.length > 0) {
-      const sample = JSON.stringify(vals[0]);
-      errors.push(`[地価DEBUG2] cat02試行=${cat02} 件数=${vals.length} sample=${sample.substring(0,200)}`);
-      const { years, data } = aggregateByYear(vals, 10);
-      if (years.length >= 2) {
-        result.landYears   = years;
-        result.landData    = data;
-        result.currentLand = data[data.length - 1];
-        landOk = true;
-      } else {
-        errors.push(`[地価DEBUG2] years=${years.length}件のみ`);
-      }
+    const all = await fetchEstatData(apiKey, '0003348814', { cdCat01: '00005020', limit: 200 });
+    if (all && all.length > 0) {
+      const cat2set = [...new Set(all.map(v => v['@cat02']))].slice(0, 20);
+      const timeset = [...new Set(all.map(v => v['@time']))].slice(0, 5);
+      errors.push(`[地価DEBUG3] 件数=${all.length} cat02=${JSON.stringify(cat2set)} time=${JSON.stringify(timeset)}`);
     } else {
-      // cdCat02が効かない場合→全取得してcat02一覧を確認
-      const all = await fetchEstatData(apiKey, '0003348814', { cdCat01: '00005020', limit: 200 });
-      if (all && all.length > 0) {
-        const cat2set = [...new Set(all.map(v => v['@cat02']))].slice(0,15);
-        errors.push(`[地価DEBUG2] cdCat02=${cat02}でヒットなし。実在cat02=${JSON.stringify(cat2set)}`);
-      }
+      errors.push('[地価DEBUG3] 全取得も空');
     }
   } catch (e) {
-    errors.push('[地価DEBUG2] エラー: ' + e.message.substring(0,100));
+    errors.push('[地価DEBUG3] エラー: ' + e.message.substring(0, 100));
   }
   if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
 
