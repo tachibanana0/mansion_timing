@@ -874,14 +874,12 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
   target.searchParams.set('sectionHeaderFlg', '1');
   Object.entries(params).forEach(([k, v]) => target.searchParams.set(k, v));
 
-  // まず直接試みる（サーバー経由で開いている場合はこちらが成功する）
   let json = null;
   try {
     const res = await fetch(target.toString(), { signal: AbortSignal.timeout(8000) });
     const text = await res.text();
     json = JSON.parse(text);
   } catch (directErr) {
-    // 直接失敗 → CORSプロキシ経由で再試行
     try {
       const proxyUrl = CORS_PROXY + encodeURIComponent(target.toString());
       const res2 = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
@@ -902,7 +900,6 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
     }
   }
 
-  // e-Stat のステータスチェック
   const result = json?.GET_STATS_DATA?.RESULT;
   if (result) {
     const status = Number(result.STATUS);
@@ -922,6 +919,22 @@ async function fetchEstatData(apiKey, statsId, params = {}) {
 
   const values = json?.GET_STATS_DATA?.STATISTICAL_DATA?.DATA_INF?.VALUE;
   return values || null;
+}
+
+// ページングで全件取得（cdCat02等が効かない統計表用）
+// maxPages: 取得上限ページ数（1ページ=100件）
+async function fetchEstatAllPages(apiKey, statsId, params = {}, maxPages = 20) {
+  let allValues = [];
+  let startPosition = 1;
+  for (let page = 0; page < maxPages; page++) {
+    const pageParams = { ...params, limit: 100, startPosition };
+    const vals = await fetchEstatData(apiKey, statsId, pageParams);
+    if (!vals || vals.length === 0) break;
+    allValues = allValues.concat(vals);
+    if (vals.length < 100) break; // 最終ページ
+    startPosition += 100;
+  }
+  return allValues;
 }
 
 // 年次データを集計するヘルパー
@@ -1002,20 +1015,24 @@ async function fetchRealData(apiKey, prefCode) {
     errors.push('人口データ: ' + e.message);
   }
 
-  // ── 2. 地価変動率デバッグ：cdCat02なしで全取得してcat02の実値を確認
+  // ── 2. 地価変動率
+  // 0003348814: cdCat02パラメータ非対応のため全件ページング取得→JS側でフィルタ
+  // @cat02="000PPOO" (PP=都道府県2桁, OO="00") 例: 宮城(04)→"00000400"
   let landOk = false;
   try {
-    const all = await fetchEstatData(apiKey, '0003348814', { cdCat01: '00005020', limit: 200 });
-    if (all && all.length > 0) {
-      const cat2set = [...new Set(all.map(v => v['@cat02']))].slice(0, 20);
-      const timeset = [...new Set(all.map(v => v['@time']))].slice(0, 5);
-      errors.push(`[地価DEBUG3] 件数=${all.length} cat02=${JSON.stringify(cat2set)} time=${JSON.stringify(timeset)}`);
-    } else {
-      errors.push('[地価DEBUG3] 全取得も空');
+    const cat02target = '000' + prefCode.padStart(2,'0') + '00';
+    const allVals = await fetchEstatAllPages(apiKey, '0003348814', { cdCat01: '00005020' }, 15);
+    const prefVals = allVals.filter(v => v['@cat02'] === cat02target);
+    if (prefVals.length >= 2) {
+      const { years, data } = aggregateByYear(prefVals, 10);
+      if (years.length >= 2) {
+        result.landYears   = years;
+        result.landData    = data;
+        result.currentLand = data[data.length - 1];
+        landOk = true;
+      }
     }
-  } catch (e) {
-    errors.push('[地価DEBUG3] エラー: ' + e.message.substring(0, 100));
-  }
+  } catch (e) { /* ignore */ }
   if (!landOk) errors.push('地価データ: 取得できませんでした（スコアに影響しません）');
 
   // ── 3. 建築着工統計 都道府県別着工戸数
